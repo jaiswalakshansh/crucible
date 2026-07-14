@@ -31,28 +31,49 @@ Legend for **Verified by**:
 | `evals.harness` | run a scan fn over labeled cases, micro-average | unit test with oracle/noisy stubs (`test_evals`) | run against a real corpus |
 | `backends.FakeBackend` | scripted responses for tests | unit test (`test_gates`) | — (test-only) |
 | `backends.AnthropicBackend` | real Messages API call via urllib | **not run** | everything — no key here; no integration test; live path unexercised |
+| `substrate.treesitter` | parse 5 languages via tree-sitter | manual + unit (`test_taint`) | — |
+| `substrate.taint` (Python) | intra-procedural taint, sources/sinks/sanitizers, source→sink path | **unit tests on real code** (`test_taint`) + corpus | inter-procedural flows (not followed); control-flow precision |
+| `substrate.taint` (JS/TS) | same analysis for JS and TS | **unit tests on real code** (`test_taint`) | narrower rule packs than Python; DOM sinks (e.g. innerHTML) not covered |
+| `substrate.taint` (Go/Java) | not implemented | n/a | **no taint adapter yet** — these languages parse but produce no findings |
+| `substrate.candidates` | walk a dir, analyze files, emit findings | manual run (`crucible scan`) + corpus | — |
 | `substrate.OpengrepAdapter` | shell out to Opengrep, parse SARIF | `available()` returns False here (binary absent) | scan/parse against real Opengrep output |
-| `harness.Coordinator` | Phase 0 recon stage into state | manual run (`crucible scan`, empty findings — no Opengrep) | behavior with real candidates |
-| CLI (`crucible`) | `version` / `info` / `scan` | manual run (`crucible version`, `crucible info`) | `scan` with real detectors |
+| `harness.Coordinator` | Phase 0 recon stage into state | manual run | superseded by `substrate.candidates` for real findings |
+| `backends.AnthropicBackend` (live) | real adversarial-gate call | **gated integration test** (`tests/integration`), skipped without a key | not run here — no key present |
+| CLI (`crucible`) | `version`/`info`/`scan`/`validate` | manual run — `scan` finds real taint flows; `validate` skips the LLM gate honestly without a key | `validate` with a real model |
 
 ## Repo-wide facts (checked)
 
-- Test suite: **58 tests pass** (`.venv/bin/pytest -q`).
+- Test suite: **79 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
 - Lint: `ruff check src tests conftest.py` — clean.
-- The PoC gate and local executor are verified with **real subprocess execution**,
-  not mocks: a PoC that exits 0 confirms, exit non-zero does not, a sleep times
-  out. A full ladder reaches `CONFIRMED` only when a real PoC fires.
+- The tree-sitter taint analyzer is verified on **real code** (real parsing): it
+  flags direct and variable-mediated source→sink flows, handles property/subscript
+  sources, and correctly leaves parameterized, sanitized, and constant queries
+  alone. `crucible scan` finds real flows across Python/JS/TS.
+- The PoC gate and local executor are verified with **real subprocess execution**.
 - No LLM API key is present in this environment; no LLM gate has been run against a
-  real model (only against a scripted backend).
-- The `opengrep` binary is absent here (`crucible info` -> `opengrep_available: false`).
+  real model (scripted backend only). The live path has a skipped integration test.
+- The `opengrep` binary is absent here; taint analysis does not depend on it.
 - The Docker executor is not run here; it is unverified in this repo.
+
+## Measured numbers (with honest framing)
+
+- **Taint analyzer on the self-authored corpus** (`evals/fixtures/taint_corpus/`,
+  8 cases: 4 vulnerable, 4 safe): precision 1.0, recall 1.0, F1 1.0.
+  **This is not an accuracy benchmark.** The rule packs and the corpus were written
+  together, so a perfect score is expected and demonstrates only that the mechanism
+  works and does not regress. It says nothing about real-world code. The OWASP
+  Benchmark (Java) is the real test and is still **not run** — it needs the Java
+  taint adapter (not built) and a benchmark runner.
 
 ## Explicit non-results
 
-- **No benchmark has been run.** The OWASP Benchmark target in `PLAN.md` is not
-  executed anywhere in this repo. The only fixture present
-  (`evals/fixtures/synthetic/`) is a 2-file smoke set for testing the scoring
-  code path; it measures nothing about detection quality.
+- **No independent benchmark has been run.** The only measured number is on a
+  self-authored corpus (see above), which cannot demonstrate real-world accuracy.
+  The OWASP Benchmark target in `PLAN.md` is not executed anywhere in this repo.
+- **Taint analysis is intra-procedural only.** Vulnerabilities whose data flow
+  crosses a function boundary are false negatives today. Inter-procedural analysis
+  (a call graph) is the next major recall improvement and is not built.
+- **Go and Java have no taint adapter.** They parse but produce no findings.
 - Any accuracy or false-positive figure appearing in `PLAN.md` or
   `ai-sast-market-research.md` is either a target or a figure attributed to an
   external source. None have been reproduced by Crucible.

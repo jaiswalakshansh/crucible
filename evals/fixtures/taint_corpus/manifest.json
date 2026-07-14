@@ -1,0 +1,13 @@
+{
+  "_note": "A small, self-authored labeled corpus for Python and JS taint flows. It demonstrates that the analyzer reproduces the labeled source->sink flows and correctly leaves parameterized/sanitized/constant code alone. It is a FUNCTIONAL check, not an independent accuracy benchmark: the rule packs and these cases were written together, so a good score here is expected and is NOT evidence of real-world accuracy. The OWASP Benchmark (Java) remains the real, unrun test.",
+  "cases": [
+    { "path": "python/sqli_direct.py", "labels": [{ "start_line": 2 }] },
+    { "path": "python/sqli_via_var.py", "labels": [{ "start_line": 4 }] },
+    { "path": "python/cmdi.py", "labels": [{ "start_line": 6 }] },
+    { "path": "python/safe_parameterized.py", "labels": [] },
+    { "path": "python/safe_sanitized.py", "labels": [] },
+    { "path": "python/safe_constant.py", "labels": [] },
+    { "path": "javascript/sqli.js", "labels": [{ "start_line": 3 }] },
+    { "path": "javascript/safe.js", "labels": [] }
+  ]
+}

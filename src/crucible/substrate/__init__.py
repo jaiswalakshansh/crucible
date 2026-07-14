@@ -18,5 +18,15 @@ an indexer, and source/sink/sanitizer specs — no changes above L0.
 
 from crucible.substrate.opengrep import OpengrepAdapter
 from crucible.substrate.languages import LANGUAGES, Language, detect_language
+from crucible.substrate.taint import analyze_source
+from crucible.substrate.candidates import analyze_file, taint_candidates
 
-__all__ = ["OpengrepAdapter", "LANGUAGES", "Language", "detect_language"]
+__all__ = [
+    "OpengrepAdapter",
+    "LANGUAGES",
+    "Language",
+    "detect_language",
+    "analyze_source",
+    "analyze_file",
+    "taint_candidates",
+]
