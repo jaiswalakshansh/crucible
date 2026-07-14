@@ -12,5 +12,6 @@ the LLM gates' judgments is not measured in this repo.
 from crucible.validators.gates.prefilter import PrefilterGate
 from crucible.validators.gates.adversarial import AdversarialGate
 from crucible.validators.gates.reachability import ReachabilityGate
+from crucible.validators.gates.poc import PoCGate
 
-__all__ = ["PrefilterGate", "AdversarialGate", "ReachabilityGate"]
+__all__ = ["PrefilterGate", "AdversarialGate", "ReachabilityGate", "PoCGate"]

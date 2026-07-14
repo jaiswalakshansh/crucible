@@ -23,6 +23,12 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
   disproof gate, an LLM reachability-audit gate, and consensus voting across
   repeated runs. The gate *orchestration* is unit-tested with a scripted backend;
   the *quality* of LLM verdicts is not yet measured (no benchmark run — see below).
+- Phase 2: a proof-of-concept gate that actually executes a PoC in a sandbox and
+  sets a finding to `confirmed` only when the PoC exits 0. The execute-and-classify
+  path is tested with **real subprocess execution** (not mocked). An end-to-end
+  `Pipeline` composes candidates → validation ladder → consensus, and a `Budget`
+  governor caps tokens/calls/wall-clock. A Docker executor (`--network none`)
+  exists for untrusted PoCs but is not run in CI.
 
 ## What is not yet true
 

@@ -12,5 +12,6 @@ enum; fan-out execution lands in Phase 1.
 """
 
 from crucible.harness.coordinator import Coordinator, Stage
+from crucible.harness.pipeline import Pipeline
 
-__all__ = ["Coordinator", "Stage"]
+__all__ = ["Coordinator", "Stage", "Pipeline"]

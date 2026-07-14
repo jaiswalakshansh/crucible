@@ -22,6 +22,11 @@ Legend for **Verified by**:
 | `AdversarialGate` | LLM disproof; verdict mapping; fail-open on error/malformed | unit test with scripted backend (`test_gates`) | **judgment quality — no model run, no benchmark** |
 | `ReachabilityGate` | LLM reachability judgment; fail-open | unit test with scripted backend (`test_gates`) | **judgment quality — no model run** |
 | `validators.consensus` | count runs per fingerprint, stability score, threshold | unit test (`test_consensus`) | that voting reduces real variance (not measured) |
+| `PoCGate` | run a PoC, confirm on exit 0, fail-open on timeout/error | **unit test with REAL subprocess execution** (`test_poc_gate`) | model-generated PoC quality (gen path tested only with scripted spec) |
+| `sandbox.LocalSubprocessExecutor` | run files+entrypoint as a subprocess, timeout | **unit test with real execution** (`test_sandbox`) | does NOT isolate untrusted code (documented); no network isolation |
+| `sandbox.DockerExecutor` | run PoC in a container, `--network none` | **not run** | everything — not exercised in CI; needs docker; behavior unverified here |
+| `harness.Pipeline` | candidates -> ladder -> consensus, end to end | unit test with injected source + real PoC (`test_pipeline`) | behavior with a real candidate source / live gates |
+| `budget.Budget` | token/call/wall-clock caps with injectable clock | unit test (`test_budget`) | — |
 | `evals.scoring` | precision/recall/F1, span-match TP/FP/FN | unit test (`test_evals`, hand-computed) | — |
 | `evals.harness` | run a scan fn over labeled cases, micro-average | unit test with oracle/noisy stubs (`test_evals`) | run against a real corpus |
 | `backends.FakeBackend` | scripted responses for tests | unit test (`test_gates`) | — (test-only) |
@@ -32,11 +37,15 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **36 tests pass** (`.venv/bin/pytest -q`).
+- Test suite: **58 tests pass** (`.venv/bin/pytest -q`).
 - Lint: `ruff check src tests conftest.py` — clean.
-- No LLM API key is present in this environment; no gate has been run against a
-  real model.
+- The PoC gate and local executor are verified with **real subprocess execution**,
+  not mocks: a PoC that exits 0 confirms, exit non-zero does not, a sleep times
+  out. A full ladder reaches `CONFIRMED` only when a real PoC fires.
+- No LLM API key is present in this environment; no LLM gate has been run against a
+  real model (only against a scripted backend).
 - The `opengrep` binary is absent here (`crucible info` -> `opengrep_available: false`).
+- The Docker executor is not run here; it is unverified in this repo.
 
 ## Explicit non-results
 
