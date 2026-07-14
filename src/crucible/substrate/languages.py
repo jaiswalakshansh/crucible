@@ -22,13 +22,16 @@ class Language:
     poc_sandbox: bool = False
 
 
-# Phase 0/1/2 scope, sequenced by PoC-containerization difficulty.
+# Capability flags reflect what is actually implemented and tested, not aspiration.
+# deep_taint is True only where a tree-sitter taint adapter exists and is tested
+# (Python, JS, TS). Go and Java parse via tree-sitter but have no taint adapter yet.
 LANGUAGES: dict[str, Language] = {
-    "python": Language("python", (".py",), tree_sitter=True, opengrep=True),
+    "python": Language("python", (".py",), tree_sitter=True, opengrep=True,
+                       deep_taint=True),
     "javascript": Language("javascript", (".js", ".jsx", ".mjs", ".cjs"),
-                           tree_sitter=True, opengrep=True),
+                           tree_sitter=True, opengrep=True, deep_taint=True),
     "typescript": Language("typescript", (".ts", ".tsx"),
-                           tree_sitter=True, opengrep=True),
+                           tree_sitter=True, opengrep=True, deep_taint=True),
     "go": Language("go", (".go",), tree_sitter=True, opengrep=True),
     "java": Language("java", (".java",), tree_sitter=True, opengrep=True),
 }

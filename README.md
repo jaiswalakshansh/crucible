@@ -11,9 +11,13 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 
 ## What it does today (verified)
 
-- Parses a target directory, selects files in a supported language, and runs the
-  Opengrep deterministic scanner when its binary is present (degrades to no-op
-  recon when it is absent).
+- **Finds real vulnerabilities deterministically.** A tree-sitter taint analyzer
+  traces untrusted input from source to sink within a function for Python,
+  JavaScript, and TypeScript, and reports SQL injection, command injection, and
+  code injection with an explicit source→sink path. It correctly leaves
+  parameterized queries, sanitized values, and constant strings alone. `crucible
+  scan <path>` emits SARIF. Verified with unit tests on real code and a labeled
+  corpus (see "Measured numbers" caveat below).
 - Represents every finding in a SARIF-2.1.0-aligned model that also carries a
   `confirmation` status and a `stability` score.
 - Runs candidates through a validation ladder that is **fail-open** (a gate that
@@ -32,15 +36,21 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 
 ## What is not yet true
 
-- **No benchmark has been run.** The plan targets the OWASP Benchmark; the scoring
-  harness exists and its metric math is tested, but it has not been executed
-  against OWASP or any real corpus in this repo. Any accuracy figure quoted in
-  [PLAN.md](PLAN.md) is a *target*, not a result.
-- The LLM gates have been exercised only against a deterministic fake backend to
-  test orchestration. A real backend (Anthropic) is implemented but is not run in
-  CI and requires an API key.
-- Deep taint, Code Property Graph, cross-repo reachability, and the PoC sandbox
-  are described in [PLAN.md](PLAN.md) but not implemented.
+- **Taint analysis is intra-procedural.** Flows that cross a function boundary are
+  missed today (false negatives). Inter-procedural analysis via a call graph is the
+  next major recall step and is not built. This is the single biggest gap between
+  Crucible and mature tools.
+- **Go and Java have no taint adapter yet.** They parse, but produce no findings.
+- **No independent benchmark has been run.** The only measured number is on a
+  self-authored corpus, which cannot show real-world accuracy — the rule packs and
+  the corpus were written together. The OWASP Benchmark (Java) is the real test and
+  is not run. Any accuracy figure in [PLAN.md](PLAN.md) is a *target*.
+- The LLM gates have been exercised against a scripted backend (orchestration) and,
+  optionally, a real model via a skipped, key-gated integration test. Their
+  *judgment quality* is unmeasured.
+- Code Property Graph and cross-repo reachability are described in
+  [PLAN.md](PLAN.md) but not implemented. The Docker PoC executor exists but is not
+  run in CI.
 
 ## Design premise (attributed, not asserted as fact)
 

@@ -7,7 +7,10 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Akshansh Jaiswal" }]
 keywords = ["sast", "security", "static-analysis", "ai", "llm", "vulnerability"]
-dependencies = []
+dependencies = [
+    "tree-sitter>=0.23",
+    "tree-sitter-language-pack>=0.9",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.5", "mypy>=1.10"]

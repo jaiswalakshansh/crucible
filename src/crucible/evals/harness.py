@@ -75,6 +75,12 @@ def run_eval(cases: list[Case], scan_fn: ScanFn, *, root: str = "") -> EvalResul
     for case in cases:
         target = os.path.join(root, case.path) if root else case.path
         preds = scan_fn(target)
+        # Normalize prediction paths to be relative to ``root`` so they line up
+        # with the manifest's relative label paths.
+        if root:
+            for p in preds:
+                if os.path.isabs(p.location.path) or p.location.path.startswith(root):
+                    p.location.path = os.path.relpath(p.location.path, root)
         s = score_findings(preds, case.labels)
         per_case[case.path] = s
         tot_tp += s.tp
