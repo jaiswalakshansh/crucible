@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+
+# Env / secrets — never commit these
+.env
+.env.*
+*.pem
+*.key
+secrets/
+.crucible/credentials*
+
+# Crucible runtime state & outputs
+.crucible/state/
+.crucible/cache/
+*.sarif.local
+scan-output/
+findings/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
