@@ -39,3 +39,6 @@ findings/
 .idea/
 .vscode/
 *.swp
+
+# Local Claude Code settings
+.claude/
