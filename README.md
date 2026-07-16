@@ -12,12 +12,17 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 ## What it does today (verified)
 
 - **Finds real vulnerabilities deterministically.** A tree-sitter taint analyzer
-  traces untrusted input from source to sink within a function for Python,
-  JavaScript, and TypeScript, and reports SQL injection, command injection, and
-  code injection with an explicit source→sink path. It correctly leaves
-  parameterized queries, sanitized values, and constant strings alone. `crucible
-  scan <path>` emits SARIF. Verified with unit tests on real code and a labeled
-  corpus (see "Measured numbers" caveat below).
+  traces data from source to sink within a function for Python, JavaScript, and
+  TypeScript, with an explicit source→sink path. Coverage spans three domains:
+  backend (SQL injection, command injection, code injection, SSRF, path traversal,
+  SSTI), frontend (DOM XSS, including `el.innerHTML =` assignment sinks), and
+  AI/LLM (insecure handling of LLM output that reaches a dangerous sink). It
+  correctly leaves parameterized queries, sanitized values, and constant strings
+  alone. `crucible scan <path>` emits SARIF. Verified with unit tests on real code
+  and a labeled corpus (see "Measured numbers" caveat below).
+  Note: prompt injection (user input reaching the model) is deliberately **not**
+  flagged — it is true of every LLM app and would be almost all false positives;
+  static analysis cannot see whether guardrails exist.
 - Represents every finding in a SARIF-2.1.0-aligned model that also carries a
   `confirmation` status and a `stability` score.
 - Runs candidates through a validation ladder that is **fail-open** (a gate that

@@ -32,8 +32,10 @@ Legend for **Verified by**:
 | `backends.FakeBackend` | scripted responses for tests | unit test (`test_gates`) | — (test-only) |
 | `backends.AnthropicBackend` | real Messages API call via urllib | **not run** | everything — no key here; no integration test; live path unexercised |
 | `substrate.treesitter` | parse 5 languages via tree-sitter | manual + unit (`test_taint`) | — |
-| `substrate.taint` (Python) | intra-procedural taint, sources/sinks/sanitizers, source→sink path | **unit tests on real code** (`test_taint`) + corpus | inter-procedural flows (not followed); control-flow precision |
-| `substrate.taint` (JS/TS) | same analysis for JS and TS | **unit tests on real code** (`test_taint`) | narrower rule packs than Python; DOM sinks (e.g. innerHTML) not covered |
+| `substrate.taint` (Python) | intra-procedural taint incl. call-sinks, source-kind tracking; classes: SQLi, cmd-injection, code-injection, SSRF, path-traversal, SSTI, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | inter-procedural flows (not followed); control-flow precision |
+| `substrate.taint` (JS/TS) | same engine + assignment-target sinks; classes: SQLi, cmd-injection, code-injection, DOM-XSS, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | narrower backend packs than Python; framework-aware sources not modeled |
+| `substrate.taint` assignment-sinks | detect tainted value written to a dangerous target (`el.innerHTML =`) | **unit test** (`test_taint`) | only DOM-XSS targets modeled so far |
+| `substrate.taint` LLM-output source | LLM/model-call return treated as a source; flagged when it reaches a dangerous sink | **unit test** (`test_taint`) | prompt-injection (input→model) deliberately NOT modeled (would be mostly FP) |
 | `substrate.taint` (Go/Java) | not implemented | n/a | **no taint adapter yet** — these languages parse but produce no findings |
 | `substrate.candidates` | walk a dir, analyze files, emit findings | manual run (`crucible scan`) + corpus | — |
 | `substrate.OpengrepAdapter` | shell out to Opengrep, parse SARIF | `available()` returns False here (binary absent) | scan/parse against real Opengrep output |
@@ -43,7 +45,7 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **79 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **90 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
 - Lint: `ruff check src tests conftest.py` — clean.
 - The tree-sitter taint analyzer is verified on **real code** (real parsing): it
   flags direct and variable-mediated source→sink flows, handles property/subscript
@@ -58,7 +60,9 @@ Legend for **Verified by**:
 ## Measured numbers (with honest framing)
 
 - **Taint analyzer on the self-authored corpus** (`evals/fixtures/taint_corpus/`,
-  8 cases: 4 vulnerable, 4 safe): precision 1.0, recall 1.0, F1 1.0.
+  15 cases: 8 vulnerable, 7 safe; spanning SQLi, command injection, SSRF, path
+  traversal, DOM XSS, and insecure LLM output handling, plus parameterized/
+  sanitized/constant safe cases): precision 1.0, recall 1.0, F1 1.0.
   **This is not an accuracy benchmark.** The rule packs and the corpus were written
   together, so a perfect score is expected and demonstrates only that the mechanism
   works and does not regress. It says nothing about real-world code. The OWASP
