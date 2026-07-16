@@ -82,8 +82,9 @@ L0  substrate     tree-sitter / Opengrep / SARIF (one model per language)
 ```
 
 Layers L0–L3 have partial implementations; see [STATUS.md](STATUS.md) for exactly
-what exists and how it was checked. Full plan in [PLAN.md](PLAN.md); the market
-research it draws on is in [ai-sast-market-research.md](ai-sast-market-research.md).
+what exists and how it was checked. Full plan in [PLAN.md](PLAN.md); forward plan
+in [ROADMAP.md](ROADMAP.md); the market research it draws on is in
+[ai-sast-market-research.md](ai-sast-market-research.md).
 
 ## Scope
 
