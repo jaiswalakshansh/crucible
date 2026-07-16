@@ -23,6 +23,8 @@ Legend for **Verified by**:
 | `ReachabilityGate` | LLM reachability judgment; fail-open | unit test with scripted backend (`test_gates`) | **judgment quality — no model run** |
 | `validators.consensus` | count runs per fingerprint, stability score, threshold | unit test (`test_consensus`) | that voting reduces real variance (not measured) |
 | `PoCGate` | run a PoC, confirm on exit 0, fail-open on timeout/error | **unit test with REAL subprocess execution** (`test_poc_gate`) | model-generated PoC quality (gen path tested only with scripted spec) |
+| `exploit.synthesizer` | build a PoC that calls a function with a payload; marker proves execution | **unit test, REAL execution** (`test_exploit`) | Python execution sinks only; single-callable-arg functions only |
+| `exploit.prover` | prove eval/exec/os.system param flows; CONFIRMED only if exploit fires | **unit test, REAL execution** (`test_exploit`) | cannot prove SQLi/XSS/SSRF (needs a live service); leaves them SUSPECTED |
 | `sandbox.LocalSubprocessExecutor` | run files+entrypoint as a subprocess, timeout | **unit test with real execution** (`test_sandbox`) | does NOT isolate untrusted code (documented); no network isolation |
 | `sandbox.DockerExecutor` | run PoC in a container, `--network none` | **not run** | everything — not exercised in CI; needs docker; behavior unverified here |
 | `harness.Pipeline` | candidates -> ladder -> consensus, end to end | unit test with injected source + real PoC (`test_pipeline`) | behavior with a real candidate source / live gates |
@@ -41,11 +43,17 @@ Legend for **Verified by**:
 | `substrate.OpengrepAdapter` | shell out to Opengrep, parse SARIF | `available()` returns False here (binary absent) | scan/parse against real Opengrep output |
 | `harness.Coordinator` | Phase 0 recon stage into state | manual run | superseded by `substrate.candidates` for real findings |
 | `backends.AnthropicBackend` (live) | real adversarial-gate call | **gated integration test** (`tests/integration`), skipped without a key | not run here — no key present |
-| CLI (`crucible`) | `version`/`info`/`scan`/`validate` | manual run — `scan` finds real taint flows; `validate` skips the LLM gate honestly without a key | `validate` with a real model |
+| CLI (`crucible`) | `version`/`info`/`scan`/`validate`/`prove` | manual run — `scan` finds real taint flows; `prove` confirms 2/3 fixture cases by real execution and leaves SQLi suspected; `validate` skips the LLM gate honestly without a key | `validate` with a real model |
 
 ## Repo-wide facts (checked)
 
-- Test suite: **90 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **100 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- **Exploitability is proven, not asserted, for the provable subset.** For a Python
+  function that passes a parameter into an `eval`/`exec`/`os.system` sink, `prove`
+  synthesizes a PoC, runs it, and marks the finding `confirmed` only when
+  attacker-controlled code actually executes (a marker file appears). SQLi/XSS/SSRF
+  are left `suspected` because proving them needs a running service (DAST), which
+  Crucible does not do. Verified with real execution in `test_exploit`.
 - Lint: `ruff check src tests conftest.py` — clean.
 - The tree-sitter taint analyzer is verified on **real code** (real parsing): it
   flags direct and variable-mediated source→sink flows, handles property/subscript

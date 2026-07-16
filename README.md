@@ -23,6 +23,14 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
   Note: prompt injection (user input reaching the model) is deliberately **not**
   flagged — it is true of every LLM app and would be almost all false positives;
   static analysis cannot see whether guardrails exist.
+- **Proves exploitability where it can, honestly.** For a function that passes a
+  parameter into a code/command-execution sink (`eval`, `exec`, `os.system`),
+  `crucible prove` synthesizes a real PoC, runs it in a sandbox, and marks the
+  finding `confirmed` only when attacker-controlled code actually executes. SQL
+  injection, XSS, and SSRF cannot be proven this way — they need a running service
+  (dynamic testing) — so they are left `suspected`, never claimed as proven. The
+  point of the tool is exploitable code, not pattern counts; this is the first
+  piece that separates the two. Verified with real execution.
 - Represents every finding in a SARIF-2.1.0-aligned model that also carries a
   `confirmation` status and a `stability` score.
 - Runs candidates through a validation ladder that is **fail-open** (a gate that

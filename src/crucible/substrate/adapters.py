@@ -29,6 +29,11 @@ class LanguageAdapter(abc.ABC):
     def function_body(self, node: Any) -> Any | None:
         """Return the statement-container child of a function node, or None."""
 
+    def function_name(self, node: Any) -> str | None:
+        """Return the function's name if it has one (None for anonymous)."""
+        name = node.child_by_field_name("name")
+        return node_text(name) if name is not None else None
+
     @abc.abstractmethod
     def param_names(self, func_node: Any) -> list[str]:
         ...

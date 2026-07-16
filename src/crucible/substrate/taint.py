@@ -31,6 +31,15 @@ from crucible.substrate.treesitter import get_tree, node_line, node_text
 class TaintMark(NamedTuple):
     line: int
     kind: str  # "user" (untrusted input) or "llm" (model output)
+    origin: str | None = None  # source parameter name, when taint began at a param
+
+
+# Sink classes for which exploitability can be proven by calling the function with
+# a crafted argument (see crucible.exploit). Kept here so taint can flag which
+# findings are candidates for proving.
+EXECUTION_SINK_RULES = frozenset(
+    {"crucible.code-injection", "crucible.command-injection"}
+)
 
 
 def analyze_source(
@@ -68,11 +77,15 @@ class _Analyzer:
         self._seen: set[tuple[int, int]] = set()
 
     def run(self, root: Any) -> None:
-        self._analyze_scope(root, params=[])
+        self._analyze_scope(root, params=[], func_name=None)
         for func in self._iter_functions(root):
             body = self.a.function_body(func)
             if body is not None:
-                self._analyze_scope(body, params=self.a.param_names(func))
+                self._analyze_scope(
+                    body,
+                    params=self.a.param_names(func),
+                    func_name=self.a.function_name(func),
+                )
 
     def _iter_functions(self, root: Any) -> list[Any]:
         found: list[Any] = []
@@ -85,31 +98,37 @@ class _Analyzer:
                 stack.append(child)
         return found
 
-    def _analyze_scope(self, scope: Any, params: list[str]) -> None:
+    def _analyze_scope(
+        self, scope: Any, params: list[str], func_name: str | None
+    ) -> None:
         tainted: dict[str, TaintMark] = {}
         if self.taint_params:
             for p in params:
-                tainted[p] = TaintMark(node_line(scope), "user")
+                tainted[p] = TaintMark(node_line(scope), "user", origin=p)
         for node in self._walk_scope(scope):
             assignment = self.a.as_assignment(node)
             if assignment is not None:
-                self._handle_assignment(node, assignment, tainted)
+                self._handle_assignment(node, assignment, tainted, func_name)
                 continue
             call = self.a.as_call(node)
             if call is not None:
                 callee, args = call
                 if self.rules.sinks.matches(callee):
-                    self._check_call_sink(node, callee, args, tainted)
+                    self._check_call_sink(node, callee, args, tainted, func_name)
 
     def _handle_assignment(
-        self, node: Any, assignment: tuple[Any, Any], tainted: dict[str, TaintMark]
+        self,
+        node: Any,
+        assignment: tuple[Any, Any],
+        tainted: dict[str, TaintMark],
+        func_name: str | None,
     ) -> None:
         target, value = assignment
         mark = self._expr_taint(value, tainted)
         target_text = node_text(target)
         # Assignment-target sink, e.g. ``el.innerHTML = tainted``.
         if mark is not None and self.rules.assign_sinks.matches(target_text):
-            self._emit(node, target_text, mark)
+            self._emit(node, target_text, mark, func_name)
         # Variable binding (only for plain identifiers).
         name = self.a.identifier_name(target)
         if name is not None:
@@ -126,7 +145,12 @@ class _Analyzer:
             yield from self._walk_scope(child)
 
     def _check_call_sink(
-        self, call_node: Any, callee: str, args: list[Any], tainted: dict[str, TaintMark]
+        self,
+        call_node: Any,
+        callee: str,
+        args: list[Any],
+        tainted: dict[str, TaintMark],
+        func_name: str | None,
     ) -> None:
         # Only the first positional argument is the dangerous position for the
         # sinks in our rule packs (query/command/code string/url/path). This is
@@ -135,7 +159,7 @@ class _Analyzer:
             return
         mark = self._expr_taint(args[0], tainted)
         if mark is not None:
-            self._emit(call_node, callee, mark)
+            self._emit(call_node, callee, mark, func_name)
 
     def _expr_taint(self, node: Any, tainted: dict[str, TaintMark]) -> TaintMark | None:
         call = self.a.as_call(node)
@@ -167,7 +191,9 @@ class _Analyzer:
                 best = mark
         return best
 
-    def _emit(self, sink_node: Any, sink_text: str, mark: TaintMark) -> None:
+    def _emit(
+        self, sink_node: Any, sink_text: str, mark: TaintMark, func_name: str | None
+    ) -> None:
         sink_line = node_line(sink_node)
         key = (mark.line, sink_line)
         if key in self._seen:
@@ -202,4 +228,16 @@ class _Analyzer:
             ],
         }
         finding.evidence["code"] = node_text(sink_node)
+        # If this is an execution sink reached from a function parameter, record
+        # enough for the exploit prover to build a PoC that calls the function.
+        if (
+            rule_id in EXECUTION_SINK_RULES
+            and mark.origin is not None
+            and func_name is not None
+        ):
+            finding.evidence["exploit"] = {
+                "function": func_name,
+                "param": mark.origin,
+                "sink_class": rule_id,
+            }
         self.findings.append(finding)

@@ -60,6 +60,43 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_prove(args: argparse.Namespace) -> int:
+    from crucible.exploit import prove_file
+    from crucible.sandbox import DockerExecutor, LocalSubprocessExecutor
+
+    if args.docker:
+        executor = DockerExecutor()
+    else:
+        executor = LocalSubprocessExecutor()
+        print(
+            "prove: using the local subprocess executor, which does NOT sandbox "
+            "untrusted code. Use --docker for untrusted targets.",
+            file=sys.stderr,
+        )
+
+    targets: list[str] = []
+    if os.path.isfile(args.path):
+        targets = [args.path]
+    else:
+        for dirpath, dirnames, filenames in os.walk(args.path):
+            dirnames[:] = [d for d in dirnames if d not in {".git", "node_modules", ".venv", "__pycache__"}]
+            targets.extend(os.path.join(dirpath, n) for n in filenames)
+
+    all_findings = []
+    confirmed = 0
+    for t in targets:
+        result = prove_file(t, executor=executor)
+        all_findings.extend(result.findings)
+        confirmed += len(result.confirmed)
+    print(
+        f"prove: {confirmed} finding(s) PROVEN exploitable out of {len(all_findings)} "
+        f"execution-sink candidate(s)",
+        file=sys.stderr,
+    )
+    _emit(all_findings, args.output)
+    return 0
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     from crucible.harness import Pipeline
     from crucible.validators.gates import AdversarialGate, PrefilterGate
@@ -96,6 +133,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("path", help="file or directory to scan")
     p_scan.add_argument("-o", "--output", help="write SARIF here (default: stdout)")
     p_scan.set_defaults(func=_cmd_scan)
+
+    p_prove = sub.add_parser(
+        "prove",
+        help="prove exploitability of execution-sink findings by running a real PoC",
+    )
+    p_prove.add_argument("path", help="file or directory to analyze")
+    p_prove.add_argument("-o", "--output", help="write SARIF here (default: stdout)")
+    p_prove.add_argument(
+        "--docker",
+        action="store_true",
+        help="run PoCs in a network-isolated container (required for untrusted code)",
+    )
+    p_prove.set_defaults(func=_cmd_prove)
 
     p_val = sub.add_parser("validate", help="scan then run the validation ladder")
     p_val.add_argument("path", help="file or directory to scan")
