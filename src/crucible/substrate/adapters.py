@@ -34,8 +34,12 @@ class LanguageAdapter(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def as_assignment(self, node: Any) -> tuple[str | None, Any] | None:
-        """If ``node`` is an assignment, return (target_name_or_None, value_node)."""
+    def as_assignment(self, node: Any) -> tuple[Any, Any] | None:
+        """If ``node`` is an assignment, return (target_node, value_node).
+
+        The target node may be a plain identifier (a variable binding) or a
+        property/index expression (a possible assignment sink, e.g. ``el.innerHTML``).
+        """
 
     @abc.abstractmethod
     def as_call(self, node: Any) -> tuple[str, list[Any]] | None:
@@ -82,15 +86,14 @@ class PythonAdapter(LanguageAdapter):
                     names.append(node_text(ident))
         return names
 
-    def as_assignment(self, node: Any) -> tuple[str | None, Any] | None:
+    def as_assignment(self, node: Any) -> tuple[Any, Any] | None:
         if node.type != "assignment":
             return None
         left = _field(node, "left")
         right = _field(node, "right")
-        if right is None:
+        if left is None or right is None:
             return None
-        name = node_text(left) if left is not None and left.type == "identifier" else None
-        return name, right
+        return left, right
 
     def as_call(self, node: Any) -> tuple[str, list[Any]] | None:
         if node.type != "call":
@@ -132,21 +135,19 @@ class JavaScriptAdapter(LanguageAdapter):
             node_text(c) for c in params.children if c.type == "identifier"
         ]
 
-    def as_assignment(self, node: Any) -> tuple[str | None, Any] | None:
+    def as_assignment(self, node: Any) -> tuple[Any, Any] | None:
         if node.type == "variable_declarator":
             name = _field(node, "name")
             value = _field(node, "value")
-            if value is None:
+            if name is None or value is None:
                 return None
-            n = node_text(name) if name is not None and name.type == "identifier" else None
-            return n, value
+            return name, value
         if node.type == "assignment_expression":
             left = _field(node, "left")
             right = _field(node, "right")
-            if right is None:
+            if left is None or right is None:
                 return None
-            n = node_text(left) if left is not None and left.type == "identifier" else None
-            return n, right
+            return left, right
         return None
 
     def as_call(self, node: Any) -> tuple[str, list[Any]] | None:

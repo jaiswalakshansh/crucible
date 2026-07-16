@@ -3,31 +3,34 @@
 Scope and honest limitations:
 
 - **Intra-procedural.** Taint is tracked within a single function body (and the
-  module top level). Flows that cross function boundaries are NOT followed, so
-  cross-function vulnerabilities are false negatives. Inter-procedural analysis via
-  a call graph is future work.
+  module top level). Flows crossing function boundaries are NOT followed and are
+  false negatives. Inter-procedural analysis is future work (ROADMAP R1).
 - **Document-order, not full control flow.** Statements are processed in source
-  order; branches and loops are not precisely modeled. This can both miss flows
-  and, more rarely, over-report.
-- **Pattern-based sources/sinks.** See ``taint_rules``. Anything not in the rule
-  packs is missed.
-- **Parameters untainted by default.** Function parameters are not treated as
-  tainted unless ``taint_params=True``, trading recall for precision.
+  order; branches and loops are not precisely modeled.
+- **Pattern-based sources/sinks.** See ``taint_rules``; anything not listed is missed.
+- **Parameters untainted by default** (``taint_params``), trading recall for precision.
 
-What it does correctly (and is tested): within a scope, it propagates taint from a
-source call through assignments and string building into a sink argument, respects
-sanitizers, and emits a finding with an explicit source→sink path. This produces
-real reachability evidence to ground the validation gates, rather than a guess.
+What it does and is tested: within a scope it propagates taint from a source
+(user input, or LLM output) through assignments and string building into a sink —
+either a dangerous call argument or a dangerous assignment target (e.g.
+``el.innerHTML =``) — while respecting sanitizers, and emits a finding with an
+explicit source→sink path. When the source is LLM output, the finding is labeled
+as insecure-LLM-output-handling rather than by the sink alone.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from crucible.schema.finding import Finding, Location, Severity
 from crucible.substrate.adapters import LanguageAdapter, adapter_for
 from crucible.substrate.taint_rules import TaintRules, rules_for
 from crucible.substrate.treesitter import get_tree, node_line, node_text
+
+
+class TaintMark(NamedTuple):
+    line: int
+    kind: str  # "user" (untrusted input) or "llm" (model output)
 
 
 def analyze_source(
@@ -65,7 +68,6 @@ class _Analyzer:
         self._seen: set[tuple[int, int]] = set()
 
     def run(self, root: Any) -> None:
-        # The module top level is a scope; each function body is a nested scope.
         self._analyze_scope(root, params=[])
         for func in self._iter_functions(root):
             body = self.a.function_body(func)
@@ -84,92 +86,108 @@ class _Analyzer:
         return found
 
     def _analyze_scope(self, scope: Any, params: list[str]) -> None:
-        tainted: dict[str, int] = {}
+        tainted: dict[str, TaintMark] = {}
         if self.taint_params:
             for p in params:
-                tainted[p] = node_line(scope)
+                tainted[p] = TaintMark(node_line(scope), "user")
         for node in self._walk_scope(scope):
             assignment = self.a.as_assignment(node)
             if assignment is not None:
-                name, value = assignment
-                src = self._expr_taint(value, tainted)
-                if name is not None:
-                    if src is not None:
-                        tainted[name] = src
-                    else:
-                        tainted.pop(name, None)
+                self._handle_assignment(node, assignment, tainted)
                 continue
             call = self.a.as_call(node)
             if call is not None:
                 callee, args = call
                 if self.rules.sinks.matches(callee):
-                    self._check_sink(node, callee, args, tainted)
+                    self._check_call_sink(node, callee, args, tainted)
+
+    def _handle_assignment(
+        self, node: Any, assignment: tuple[Any, Any], tainted: dict[str, TaintMark]
+    ) -> None:
+        target, value = assignment
+        mark = self._expr_taint(value, tainted)
+        target_text = node_text(target)
+        # Assignment-target sink, e.g. ``el.innerHTML = tainted``.
+        if mark is not None and self.rules.assign_sinks.matches(target_text):
+            self._emit(node, target_text, mark)
+        # Variable binding (only for plain identifiers).
+        name = self.a.identifier_name(target)
+        if name is not None:
+            if mark is not None:
+                tainted[name] = mark
+            else:
+                tainted.pop(name, None)
 
     def _walk_scope(self, scope: Any):
-        """Pre-order nodes within ``scope``, not descending into nested functions
-        (those are analyzed as their own scopes)."""
         for child in scope.children:
             if self.a.is_function(child):
                 continue
             yield child
             yield from self._walk_scope(child)
 
-    def _check_sink(
-        self, call_node: Any, callee: str, args: list[Any], tainted: dict[str, int]
+    def _check_call_sink(
+        self, call_node: Any, callee: str, args: list[Any], tainted: dict[str, TaintMark]
     ) -> None:
         # Only the first positional argument is the dangerous position for the
-        # sinks in our rule packs (the SQL query string / command / code string).
-        # This is what makes parameterized queries — e.g.
-        # ``execute("... = ?", (uid,))`` — correctly safe even when a later
-        # argument is tainted. Documented limitation: sinks whose dangerous input
-        # is not the first argument are not covered.
+        # sinks in our rule packs (query/command/code string/url/path). This is
+        # what makes parameterized queries correctly safe.
         if not args:
             return
-        src_line = self._expr_taint(args[0], tainted)
-        if src_line is not None:
-            self._emit(call_node, callee, src_line)
+        mark = self._expr_taint(args[0], tainted)
+        if mark is not None:
+            self._emit(call_node, callee, mark)
 
-    def _expr_taint(self, node: Any, tainted: dict[str, int]) -> int | None:
-        """Return the source line if ``node`` evaluates to tainted data, else None."""
+    def _expr_taint(self, node: Any, tainted: dict[str, TaintMark]) -> TaintMark | None:
         call = self.a.as_call(node)
         if call is not None:
             callee, _ = call
             if self.rules.sanitizers.matches(callee):
                 return None
+            if self.rules.llm_sources.matches(callee):
+                return TaintMark(node_line(node), "llm")
             if self.rules.sources.matches(callee):
-                return node_line(node)
-            # else: fall through to recurse into receiver/args
-        # Property/index access sources that are not calls, e.g. ``req.query.id``
-        # or ``request.args["id"]``.
+                return TaintMark(node_line(node), "user")
+            # else fall through to recurse into receiver/args
         if node.type in self.a.access_types:
-            if self.rules.sources.matches(node_text(node)):
-                return node_line(node)
-            # else fall through: the base object may itself be a tainted variable.
+            text = node_text(node)
+            if self.rules.llm_sources.matches(text):
+                return TaintMark(node_line(node), "llm")
+            if self.rules.sources.matches(text):
+                return TaintMark(node_line(node), "user")
+            # else fall through: the base object may be a tainted variable.
         name = self.a.identifier_name(node)
         if name is not None:
             return tainted.get(name)
         if self.a.is_string_literal(node):
             return None
-        best: int | None = None
+        best: TaintMark | None = None
         for child in node.children:
-            src = self._expr_taint(child, tainted)
-            if src is not None and (best is None or src < best):
-                best = src
+            mark = self._expr_taint(child, tainted)
+            if mark is not None and (best is None or mark.line < best.line):
+                best = mark
         return best
 
-    def _emit(self, call_node: Any, callee: str, source_line: int) -> None:
-        sink_line = node_line(call_node)
-        key = (source_line, sink_line)
+    def _emit(self, sink_node: Any, sink_text: str, mark: TaintMark) -> None:
+        sink_line = node_line(sink_node)
+        key = (mark.line, sink_line)
         if key in self._seen:
             return
         self._seen.add(key)
-        rule_id, cwe = self.rules.label_for(callee)
+        rule_id, cwe = self.rules.label_for(sink_text)
+        if mark.kind == "llm":
+            rule_id = "crucible.insecure-llm-output-handling"
+            message = (
+                f"LLM output reaches {sink_text} without validation "
+                f"(model output at line {mark.line})"
+            )
+        else:
+            message = (
+                f"tainted data reaches {sink_text} without sanitization "
+                f"(source at line {mark.line})"
+            )
         finding = Finding(
             rule_id=rule_id,
-            message=(
-                f"tainted data reaches {callee} without sanitization "
-                f"(source at line {source_line})"
-            ),
+            message=message,
             severity=Severity.HIGH,
             location=Location(path=self.path, start_line=sink_line),
             source="crucible-taint",
@@ -177,10 +195,11 @@ class _Analyzer:
         )
         finding.evidence["taint"] = {
             "reachable": True,
+            "source_kind": mark.kind,
             "path": [
-                {"role": "source", "line": source_line},
-                {"role": "sink", "line": sink_line, "callee": callee},
+                {"role": "source", "line": mark.line, "kind": mark.kind},
+                {"role": "sink", "line": sink_line, "target": sink_text},
             ],
         }
-        finding.evidence["code"] = node_text(call_node)
+        finding.evidence["code"] = node_text(sink_node)
         self.findings.append(finding)
