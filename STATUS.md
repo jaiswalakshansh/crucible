@@ -34,7 +34,8 @@ Legend for **Verified by**:
 | `backends.FakeBackend` | scripted responses for tests | unit test (`test_gates`) | — (test-only) |
 | `backends.AnthropicBackend` | real Messages API call via urllib | **not run** | everything — no key here; no integration test; live path unexercised |
 | `substrate.treesitter` | parse 5 languages via tree-sitter | manual + unit (`test_taint`) | — |
-| `substrate.taint` (Python) | intra-procedural taint incl. call-sinks, source-kind tracking; classes: SQLi, cmd-injection, code-injection, SSRF, path-traversal, SSTI, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | inter-procedural flows (not followed); control-flow precision |
+| `substrate.interproc` | **inter-procedural taint** (intra-file): function summaries (param→sink, param→return, return-uncond) with a fixpoint; finds cross-function and multi-hop flows | **unit tests on real code** (`test_interproc`) + corpus; verified superset of intra | cross-*file* flows (not resolved); positional args only; name-based function matching |
+| `substrate.taint` (Python) | intra-procedural taint incl. call-sinks, source-kind tracking; classes: SQLi, cmd-injection, code-injection, SSRF, path-traversal, SSTI, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | superseded by `interproc` for scanning; still used directly by the exploit prover |
 | `substrate.taint` (JS/TS) | same engine + assignment-target sinks; classes: SQLi, cmd-injection, code-injection, DOM-XSS, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | narrower backend packs than Python; framework-aware sources not modeled |
 | `substrate.taint` assignment-sinks | detect tainted value written to a dangerous target (`el.innerHTML =`) | **unit test** (`test_taint`) | only DOM-XSS targets modeled so far |
 | `substrate.taint` LLM-output source | LLM/model-call return treated as a source; flagged when it reaches a dangerous sink | **unit test** (`test_taint`) | prompt-injection (input→model) deliberately NOT modeled (would be mostly FP) |
@@ -47,7 +48,12 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **100 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **108 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- **Inter-procedural taint finds cross-function flows the intra analyzer misses.**
+  Verified on real code: a handler that passes request input to a helper which hits
+  a sink is now found (intra-procedural returns nothing on the same input), and
+  two-hop chains are traced. Verified to be a superset of intra on the corpus (no
+  existing finding is lost). Parameterized/constant cross-function calls stay clean.
 - **Exploitability is proven, not asserted, for the provable subset.** For a Python
   function that passes a parameter into an `eval`/`exec`/`os.system` sink, `prove`
   synthesizes a PoC, runs it, and marks the finding `confirmed` only when
@@ -82,9 +88,10 @@ Legend for **Verified by**:
 - **No independent benchmark has been run.** The only measured number is on a
   self-authored corpus (see above), which cannot demonstrate real-world accuracy.
   The OWASP Benchmark target in `PLAN.md` is not executed anywhere in this repo.
-- **Taint analysis is intra-procedural only.** Vulnerabilities whose data flow
-  crosses a function boundary are false negatives today. Inter-procedural analysis
-  (a call graph) is the next major recall improvement and is not built.
+- **Inter-procedural taint is intra-*file* only.** Cross-function flows within one
+  file are now found; flows that cross into another module/file are not resolved
+  yet (cross-file needs import resolution — future work). The exploit prover is
+  still intra-procedural (it does not yet prove cross-function execution flows).
 - **Go and Java have no taint adapter.** They parse but produce no findings.
 - Any accuracy or false-positive figure appearing in `PLAN.md` or
   `ai-sast-market-research.md` is either a target or a figure attributed to an
