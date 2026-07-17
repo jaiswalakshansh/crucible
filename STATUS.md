@@ -24,7 +24,7 @@ Legend for **Verified by**:
 | `validators.consensus` | count runs per fingerprint, stability score, threshold | unit test (`test_consensus`) | that voting reduces real variance (not measured) |
 | `PoCGate` | run a PoC, confirm on exit 0, fail-open on timeout/error | **unit test with REAL subprocess execution** (`test_poc_gate`) | model-generated PoC quality (gen path tested only with scripted spec) |
 | `exploit.synthesizer` | build a PoC that calls a function with a payload; marker proves execution | **unit test, REAL execution** (`test_exploit`) | Python execution sinks only; single-callable-arg functions only |
-| `exploit.prover` | prove eval/exec/os.system param flows; CONFIRMED only if exploit fires | **unit test, REAL execution** (`test_exploit`) | cannot prove SQLi/XSS/SSRF (needs a live service); leaves them SUSPECTED |
+| `exploit.prover` | prove eval/exec/os.system param flows **including cross-function chains** (drives the entry function; the sink may be several calls deep) | **unit test, REAL execution** (`test_exploit`) | cannot prove SQLi/XSS/SSRF (needs a live service); intra-file only; single-arg entry functions |
 | `sandbox.LocalSubprocessExecutor` | run files+entrypoint as a subprocess, timeout | **unit test with real execution** (`test_sandbox`) | does NOT isolate untrusted code (documented); no network isolation |
 | `sandbox.DockerExecutor` | run PoC in a container, `--network none` | **not run** | everything — not exercised in CI; needs docker; behavior unverified here |
 | `harness.Pipeline` | candidates -> ladder -> consensus, end to end | unit test with injected source + real PoC (`test_pipeline`) | behavior with a real candidate source / live gates |
@@ -48,7 +48,13 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **108 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **113 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- **Cross-function exploit chains are proven end to end.** For a handler that passes
+  a parameter to a helper (or through several helpers) that reaches an
+  `eval`/`exec`/`os.system` sink, the prover drives the *entry* function with a
+  payload and confirms only when the sink actually fires. Verified with real
+  execution on two-hop and three-function chains; SQLi cross-function flows are
+  found but left `suspected` (not provable by direct call).
 - **Inter-procedural taint finds cross-function flows the intra analyzer misses.**
   Verified on real code: a handler that passes request input to a helper which hits
   a sink is now found (intra-procedural returns nothing on the same input), and
@@ -89,9 +95,9 @@ Legend for **Verified by**:
   self-authored corpus (see above), which cannot demonstrate real-world accuracy.
   The OWASP Benchmark target in `PLAN.md` is not executed anywhere in this repo.
 - **Inter-procedural taint is intra-*file* only.** Cross-function flows within one
-  file are now found; flows that cross into another module/file are not resolved
-  yet (cross-file needs import resolution — future work). The exploit prover is
-  still intra-procedural (it does not yet prove cross-function execution flows).
+  file are found (and the prover now proves cross-function execution chains); flows
+  that cross into another module/file are not resolved yet (cross-file needs import
+  resolution — the next recall step).
 - **Go and Java have no taint adapter.** They parse but produce no findings.
 - Any accuracy or false-positive figure appearing in `PLAN.md` or
   `ai-sast-market-research.md` is either a target or a figure attributed to an

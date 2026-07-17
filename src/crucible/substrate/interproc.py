@@ -78,8 +78,12 @@ def _basename(callee: str) -> str:
 
 
 def analyze_source_interprocedural(
-    source: str, language: str, *, path: str = "<memory>"
+    source: str, language: str, *, path: str = "<memory>", taint_params: bool = False
 ) -> list[Finding]:
+    """Inter-procedural taint. With ``taint_params=True`` each function's
+    parameters are treated as attacker-controlled and findings record the entry
+    function driven (used by the exploit prover to build a call that drives a
+    whole chain). Default (False) uses only real sources, as scanning does."""
     adapter = adapter_for(language)
     rules = rules_for(language)
     if adapter is None or rules is None:
@@ -99,11 +103,16 @@ def analyze_source_interprocedural(
         if not changed:
             break
 
-    # Main pass: real sources, emit findings (module scope + each function body).
+    # Main pass: emit findings (module scope + each function body).
     findings: list[Finding] = []
     _run_scope(root, {}, ctx, path, current=None, emit=findings, collect=None)
     for fn in funcs.values():
-        _run_scope(fn.body, {}, ctx, path, current=fn, emit=findings, collect=None)
+        seed = (
+            {p: TaintMark(fn.line, "user", origin=p) for p in fn.params}
+            if taint_params
+            else {}
+        )
+        _run_scope(fn.body, seed, ctx, path, current=fn, emit=findings, collect=None)
 
     # Dedupe by (rule, sink line, source line).
     unique: dict[tuple, Finding] = {}
@@ -335,5 +344,10 @@ def _hit_at(
         "path": hops,
     }
     if final_rule in EXECUTION_SINK_RULES and mark.origin is not None:
-        finding.evidence["exploit"] = {"param": mark.origin, "sink_class": final_rule}
+        exploit = {"param": mark.origin, "sink_class": final_rule}
+        if current is not None:
+            # The entry function to drive: passing a payload as ``param`` here
+            # reaches the execution sink (possibly through other local calls).
+            exploit["function"] = current.name
+        finding.evidence["exploit"] = exploit
     emit.append(finding)
