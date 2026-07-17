@@ -1,0 +1,8 @@
+{
+  "_note": "Cross-function labeled cases for the inter-procedural analyzer. Same honesty caveat as the other corpus: self-authored, a functional/regression check, not an independent accuracy benchmark.",
+  "cases": [
+    { "path": "cross_sqli.py", "labels": [{ "start_line": 7 }] },
+    { "path": "cross_safe.py", "labels": [] },
+    { "path": "two_hop_cmdi.py", "labels": [{ "start_line": 13 }] }
+  ]
+}

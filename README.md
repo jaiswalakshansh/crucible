@@ -11,9 +11,13 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 
 ## What it does today (verified)
 
-- **Finds real vulnerabilities deterministically.** A tree-sitter taint analyzer
-  traces data from source to sink within a function for Python, JavaScript, and
-  TypeScript, with an explicit source→sink path. Coverage spans three domains:
+- **Finds real vulnerabilities deterministically, across function boundaries.** A
+  tree-sitter taint analyzer traces data from source to sink for Python,
+  JavaScript, and TypeScript, with an explicit source→sink path. It is
+  **inter-procedural within a file**: a handler that passes request input to a
+  helper which reaches a sink is found (and multi-hop chains are traced) — the
+  common real-world shape that intra-procedural analysis misses. Coverage spans
+  three domains:
   backend (SQL injection, command injection, code injection, SSRF, path traversal,
   SSTI), frontend (DOM XSS, including `el.innerHTML =` assignment sinks), and
   AI/LLM (insecure handling of LLM output that reaches a dangerous sink). It
@@ -49,10 +53,9 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 
 ## What is not yet true
 
-- **Taint analysis is intra-procedural.** Flows that cross a function boundary are
-  missed today (false negatives). Inter-procedural analysis via a call graph is the
-  next major recall step and is not built. This is the single biggest gap between
-  Crucible and mature tools.
+- **Inter-procedural taint is intra-*file* only.** Cross-function flows within a
+  single file are found; flows crossing into another module/file are not resolved
+  yet (needs import resolution). The exploit prover is still intra-procedural.
 - **Go and Java have no taint adapter yet.** They parse, but produce no findings.
 - **No independent benchmark has been run.** The only measured number is on a
   self-authored corpus, which cannot show real-world accuracy — the rule packs and

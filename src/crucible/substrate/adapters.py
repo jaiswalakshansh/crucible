@@ -34,6 +34,16 @@ class LanguageAdapter(abc.ABC):
         name = node.child_by_field_name("name")
         return node_text(name) if name is not None else None
 
+    def as_return(self, node: Any) -> Any | None:
+        """If ``node`` is a return statement, return its value node (or None).
+
+        Works for both Python and JS ``return_statement`` (value is the last named
+        child)."""
+        if node.type != "return_statement":
+            return None
+        named = [c for c in node.children if c.is_named]
+        return named[-1] if named else None
+
     @abc.abstractmethod
     def param_names(self, func_node: Any) -> list[str]:
         ...
