@@ -14,10 +14,12 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 - **Finds real vulnerabilities deterministically, across function boundaries.** A
   tree-sitter taint analyzer traces data from source to sink for Python,
   JavaScript, and TypeScript, with an explicit source→sink path. It is
-  **inter-procedural within a file**: a handler that passes request input to a
-  helper which reaches a sink is found (and multi-hop chains are traced) — the
-  common real-world shape that intra-procedural analysis misses. Coverage spans
-  three domains:
+  **inter-procedural**: a handler that passes request input to a helper which
+  reaches a sink is found (and multi-hop chains are traced) — the common real-world
+  shape that intra-procedural analysis misses. For Python this works **across
+  files**: input read in one module that flows into a helper in another (via
+  `from x import f` / `import x`) is found and located at the sink's file. Coverage
+  spans three domains:
   backend (SQL injection, command injection, code injection, SSRF, path traversal,
   SSTI), frontend (DOM XSS, including `el.innerHTML =` assignment sinks), and
   AI/LLM (insecure handling of LLM output that reaches a dangerous sink). It
@@ -56,9 +58,9 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
 
 ## What is not yet true
 
-- **Inter-procedural taint is intra-*file* only.** Cross-function flows within a
-  single file are found; flows crossing into another module/file are not resolved
-  yet (needs import resolution). The exploit prover is still intra-procedural.
+- **Cross-file taint is Python-only and filename-based.** JS/TS stay single-file;
+  Python package/dotted modules match on the last path segment; star/dynamic imports
+  are not resolved. The exploit prover is still single-file.
 - **Go and Java have no taint adapter yet.** They parse, but produce no findings.
 - **No independent benchmark has been run.** The only measured number is on a
   self-authored corpus, which cannot show real-world accuracy — the rule packs and
