@@ -12,7 +12,10 @@ from __future__ import annotations
 import os
 
 from crucible.schema.finding import Finding
-from crucible.substrate.interproc import analyze_source_interprocedural
+from crucible.substrate.interproc import (
+    analyze_project,
+    analyze_source_interprocedural,
+)
 from crucible.substrate.languages import detect_language
 from crucible.substrate.taint import analyze_source
 
@@ -40,11 +43,30 @@ def taint_candidates(target: str, *, interprocedural: bool = True) -> list[Findi
     """
     if os.path.isfile(target):
         return analyze_file(target, interprocedural=interprocedural)
-    out: list[Finding] = []
+
+    # Directory: Python files are analyzed together (cross-file resolution); other
+    # supported languages are analyzed per file.
+    py_sources: dict[str, str] = {}
+    other_files: list[str] = []
     for dirpath, dirnames, filenames in os.walk(target):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for name in filenames:
-            out.extend(
-                analyze_file(os.path.join(dirpath, name), interprocedural=interprocedural)
-            )
+            path = os.path.join(dirpath, name)
+            lang = detect_language(path)
+            if lang is None:
+                continue
+            if lang.name == "python":
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        py_sources[path] = fh.read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+            else:
+                other_files.append(path)
+
+    out: list[Finding] = []
+    if py_sources:
+        out.extend(analyze_project(py_sources, language="python"))
+    for path in other_files:
+        out.extend(analyze_file(path, interprocedural=interprocedural))
     return out

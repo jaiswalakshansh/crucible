@@ -34,7 +34,8 @@ Legend for **Verified by**:
 | `backends.FakeBackend` | scripted responses for tests | unit test (`test_gates`) | — (test-only) |
 | `backends.AnthropicBackend` | real Messages API call via urllib | **not run** | everything — no key here; no integration test; live path unexercised |
 | `substrate.treesitter` | parse 5 languages via tree-sitter | manual + unit (`test_taint`) | — |
-| `substrate.interproc` | **inter-procedural taint** (intra-file): function summaries (param→sink, param→return, return-uncond) with a fixpoint; finds cross-function and multi-hop flows | **unit tests on real code** (`test_interproc`) + corpus; verified superset of intra | cross-*file* flows (not resolved); positional args only; name-based function matching |
+| `substrate.interproc` (single-file) | inter-procedural taint: function summaries (param→sink, param→return, return-uncond) with a fixpoint; cross-function and multi-hop flows | **unit tests on real code** (`test_interproc`) + corpus; verified superset of intra | positional args only; name-based function matching |
+| `substrate.interproc.analyze_project` | **cross-file** taint (Python): resolves `from x import f` / `import x` / aliases to sibling files; taint flows across modules; finding located at the sink's file | **unit tests on real code** (`test_crossfile`) | Python only; filename-stem module matching (packages match last segment); star/dynamic imports unresolved; the exploit prover is still single-file |
 | `substrate.taint` (Python) | intra-procedural taint incl. call-sinks, source-kind tracking; classes: SQLi, cmd-injection, code-injection, SSRF, path-traversal, SSTI, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | superseded by `interproc` for scanning; still used directly by the exploit prover |
 | `substrate.taint` (JS/TS) | same engine + assignment-target sinks; classes: SQLi, cmd-injection, code-injection, DOM-XSS, insecure-LLM-output | **unit tests on real code** (`test_taint`) + corpus | narrower backend packs than Python; framework-aware sources not modeled |
 | `substrate.taint` assignment-sinks | detect tainted value written to a dangerous target (`el.innerHTML =`) | **unit test** (`test_taint`) | only DOM-XSS targets modeled so far |
@@ -48,7 +49,12 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **113 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **121 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- **Cross-file taint works (Python).** Input read in one file that flows into a
+  helper in another file (via `from x import f`, `import x`, or an alias) is found
+  and located at the sink's file; the parameterized cross-file version stays clean;
+  an import of a module not in the set resolves to nothing (no crash, no false
+  positive). `crucible scan <dir>` analyzes Python files together.
 - **Cross-function exploit chains are proven end to end.** For a handler that passes
   a parameter to a helper (or through several helpers) that reaches an
   `eval`/`exec`/`os.system` sink, the prover drives the *entry* function with a
@@ -94,10 +100,10 @@ Legend for **Verified by**:
 - **No independent benchmark has been run.** The only measured number is on a
   self-authored corpus (see above), which cannot demonstrate real-world accuracy.
   The OWASP Benchmark target in `PLAN.md` is not executed anywhere in this repo.
-- **Inter-procedural taint is intra-*file* only.** Cross-function flows within one
-  file are found (and the prover now proves cross-function execution chains); flows
-  that cross into another module/file are not resolved yet (cross-file needs import
-  resolution — the next recall step).
+- **Cross-file taint is Python-only and filename-based.** JS/TS remain single-file.
+  Python package/dotted modules match on the last path segment; star and dynamic
+  imports are not resolved. The exploit prover is still single-file (it does not yet
+  prove flows whose sink is in another file).
 - **Go and Java have no taint adapter.** They parse but produce no findings.
 - Any accuracy or false-positive figure appearing in `PLAN.md` or
   `ai-sast-market-research.md` is either a target or a figure attributed to an
