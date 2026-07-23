@@ -223,3 +223,48 @@ def test_js_insecure_llm_output():
 def test_source_kind_is_recorded_in_evidence():
     user = analyze_source('def h(request):\n    eval(request.args.get("x"))\n', "python")[0]
     assert user.evidence["taint"]["source_kind"] == "user"
+
+
+# --- Track A: additional vuln classes -------------------------------------------
+
+@pytest.mark.parametrize(
+    "src,rule,cwe",
+    [
+        ('import pickle\ndef h(request):\n    pickle.loads(request.args.get("d"))\n',
+         "crucible.insecure-deserialization", "CWE-502"),
+        ('import yaml\ndef h(request):\n    yaml.load(request.args.get("d"))\n',
+         "crucible.insecure-deserialization", "CWE-502"),
+        ('from lxml import etree\ndef h(request):\n    etree.fromstring(request.args.get("x"))\n',
+         "crucible.xxe", "CWE-611"),
+        ('from flask import redirect\ndef h(request):\n    return redirect(request.args.get("n"))\n',
+         "crucible.open-redirect", "CWE-601"),
+        ('def h(request):\n    return HttpResponseRedirect(request.args.get("n"))\n',
+         "crucible.open-redirect", "CWE-601"),
+        ('def h(request, tree):\n    tree.xpath(request.args.get("q"))\n',
+         "crucible.xpath-injection", "CWE-643"),
+        ('import re\ndef h(request):\n    re.compile(request.args.get("p"))\n',
+         "crucible.redos", "CWE-1333"),
+        ('from django.utils.safestring import mark_safe\n'
+         'def h(request):\n    return mark_safe(request.args.get("c"))\n',
+         "crucible.reflected-xss", "CWE-79"),
+    ],
+)
+def test_new_python_vuln_classes(src, rule, cwe):
+    findings = analyze_source(src, "python")
+    assert len(findings) == 1
+    assert findings[0].rule_id == rule
+    assert findings[0].cwe == cwe
+
+
+def test_yaml_safe_load_is_not_flagged():
+    src = 'import yaml\ndef h(request):\n    yaml.safe_load(request.args.get("d"))\n'
+    assert analyze_source(src, "python") == []
+
+
+def test_deserialization_of_constant_is_safe():
+    assert analyze_source('import pickle\ndef h():\n    pickle.loads(b"x")\n', "python") == []
+
+
+def test_js_open_redirect():
+    src = "function h(req, res){ res.redirect(req.query.url); }"
+    assert analyze_source(src, "javascript")[0].rule_id == "crucible.open-redirect"

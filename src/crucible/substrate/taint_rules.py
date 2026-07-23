@@ -120,9 +120,39 @@ _PY_SINKS = Matcher(
             # SSTI
             "render_template_string",
             ".from_string",
+            # insecure deserialization
+            "pickle.load",
+            "cPickle.load",
+            "yaml.load",
+            "marshal.loads",
+            "jsonpickle.decode",
+            "dill.load",
+            # XXE
+            "etree.parse",
+            "etree.fromstring",
+            "minidom.parse",
+            "minidom.parseString",
+            "sax.parse",
+            # open redirect
+            "HttpResponseRedirect",
+            ".redirect",
+            # XPath injection
+            ".xpath",
+            # NOTE: LDAP injection (search_s/search_ext) is deferred: its tainted
+            # argument is the filter (not arg 0), which needs per-sink argument
+            # position modeling the engine does not have yet. See ROADMAP.
+            # ReDoS (tainted regex pattern)
+            "re.compile",
+            "re.match",
+            "re.search",
+            "re.fullmatch",
+            "re.sub",
+            # reflected XSS (marking tainted data as safe HTML)
+            "mark_safe",
+            "Markup",
         }
     ),
-    exact=frozenset({"eval", "exec", "open", "Template"}),
+    exact=frozenset({"eval", "exec", "open", "Template", "redirect"}),
 )
 _PY_SANITIZERS = Matcher(
     substrings=frozenset(
@@ -147,6 +177,33 @@ _PY_SINK_LABELS = (
     ("send_from_directory", "crucible.path-traversal", "CWE-22"),
     ("os.open", "crucible.path-traversal", "CWE-22"),
     ("open", "crucible.path-traversal", "CWE-22"),
+    # deserialization
+    ("pickle.load", "crucible.insecure-deserialization", "CWE-502"),
+    ("cPickle.load", "crucible.insecure-deserialization", "CWE-502"),
+    ("yaml.load", "crucible.insecure-deserialization", "CWE-502"),
+    ("marshal.loads", "crucible.insecure-deserialization", "CWE-502"),
+    ("jsonpickle.decode", "crucible.insecure-deserialization", "CWE-502"),
+    ("dill.load", "crucible.insecure-deserialization", "CWE-502"),
+    # XXE
+    ("etree.parse", "crucible.xxe", "CWE-611"),
+    ("etree.fromstring", "crucible.xxe", "CWE-611"),
+    ("minidom.parse", "crucible.xxe", "CWE-611"),
+    ("sax.parse", "crucible.xxe", "CWE-611"),
+    # open redirect (specific before generic)
+    ("HttpResponseRedirect", "crucible.open-redirect", "CWE-601"),
+    (".redirect", "crucible.open-redirect", "CWE-601"),
+    ("redirect", "crucible.open-redirect", "CWE-601"),
+    # XPath injection
+    (".xpath", "crucible.xpath-injection", "CWE-643"),
+    # ReDoS
+    ("re.compile", "crucible.redos", "CWE-1333"),
+    ("re.match", "crucible.redos", "CWE-1333"),
+    ("re.search", "crucible.redos", "CWE-1333"),
+    ("re.fullmatch", "crucible.redos", "CWE-1333"),
+    ("re.sub", "crucible.redos", "CWE-1333"),
+    # reflected XSS
+    ("mark_safe", "crucible.reflected-xss", "CWE-79"),
+    ("Markup", "crucible.reflected-xss", "CWE-79"),
     ("eval", "crucible.code-injection", "CWE-95"),
     ("exec", "crucible.code-injection", "CWE-95"),
 )
@@ -185,7 +242,16 @@ _JS_LLM_SOURCES = Matcher(
 )
 _JS_SINKS = Matcher(
     substrings=frozenset(
-        {".query", ".execute", "child_process.exec", ".exec", "document.write", ".insertAdjacentHTML"}
+        {
+            ".query",
+            ".execute",
+            "child_process.exec",
+            ".exec",
+            "document.write",
+            ".insertAdjacentHTML",
+            ".redirect",
+            ".xpath",
+        }
     ),
     exact=frozenset({"eval"}),
 )
@@ -205,6 +271,8 @@ _JS_SINK_LABELS = (
     (".outerHTML", "crucible.dom-xss", "CWE-79"),
     ("dangerouslySetInnerHTML", "crucible.dom-xss", "CWE-79"),
     ("child_process", "crucible.command-injection", "CWE-78"),
+    (".redirect", "crucible.open-redirect", "CWE-601"),
+    (".xpath", "crucible.xpath-injection", "CWE-643"),
     (".exec", "crucible.command-injection", "CWE-78"),
     ("eval", "crucible.code-injection", "CWE-95"),
 )
