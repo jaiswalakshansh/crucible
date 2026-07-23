@@ -49,7 +49,14 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **121 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **132 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- **14 vulnerability classes** are covered by taint (up from 8): SQLi, command
+  injection, code injection, SSRF, path traversal, SSTI, DOM XSS, insecure LLM
+  output, plus insecure deserialization (CWE-502), XXE (611), open redirect (601),
+  XPath injection (643), ReDoS (1333), and reflected XSS via mark_safe/Markup (79).
+  Each has real-code unit tests; safe variants (safe_load, constant, parameterized)
+  stay clean. LDAP injection is deliberately deferred (its tainted argument is not
+  arg 0 — needs per-sink argument-position modeling).
 - **Cross-file taint works (Python).** Input read in one file that flows into a
   helper in another file (via `from x import f`, `import x`, or an alias) is found
   and located at the sink's file; the parameterized cross-file version stays clean;

@@ -10,6 +10,8 @@
     { "path": "python/safe_sanitized.py", "labels": [] },
     { "path": "python/safe_constant.py", "labels": [] },
     { "path": "python/path_safe.py", "labels": [] },
+    { "path": "python/deserialization.py", "labels": [{ "start_line": 6 }] },
+    { "path": "python/open_redirect.py", "labels": [{ "start_line": 5 }] },
     { "path": "ai/llm_output_eval.py", "labels": [{ "start_line": 4 }] },
     { "path": "ai/llm_output_safe.py", "labels": [] },
     { "path": "javascript/sqli.js", "labels": [{ "start_line": 3 }] },

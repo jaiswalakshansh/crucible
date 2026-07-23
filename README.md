@@ -21,8 +21,10 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
   `from x import f` / `import x`) is found and located at the sink's file. Coverage
   spans three domains:
   backend (SQL injection, command injection, code injection, SSRF, path traversal,
-  SSTI), frontend (DOM XSS, including `el.innerHTML =` assignment sinks), and
-  AI/LLM (insecure handling of LLM output that reaches a dangerous sink). It
+  SSTI, insecure deserialization, XXE, open redirect, XPath injection, ReDoS),
+  frontend (DOM XSS incl. `el.innerHTML =` assignment sinks, reflected XSS via
+  `mark_safe`/`Markup`), and AI/LLM (insecure handling of LLM output that reaches a
+  dangerous sink) — 14 classes in all. It
   correctly leaves parameterized queries, sanitized values, and constant strings
   alone. `crucible scan <path>` emits SARIF. Verified with unit tests on real code
   and a labeled corpus (see "Measured numbers" caveat below).
