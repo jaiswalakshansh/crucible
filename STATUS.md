@@ -42,6 +42,7 @@ Legend for **Verified by**:
 | `substrate.taint` LLM-output source | LLM/model-call return treated as a source; flagged when it reaches a dangerous sink | **unit test** (`test_taint`) | prompt-injection (input→model) deliberately NOT modeled (would be mostly FP) |
 | `substrate.taint` (Go/Java) | not implemented | n/a | **no taint adapter yet** — these languages parse but produce no findings |
 | `substrate.patterns` | config/crypto point-detector (NOT taint): hardcoded secrets, weak crypto, insecure RNG, debug mode, TLS verify off, wildcard CORS | **unit tests** (`test_patterns`), precision-focused | line/regex based; no dataflow; known-token formats high-confidence, generic secret is heuristic |
+| `skills` (loader + registry) | load `SKILL.md` files, parse frontmatter, match skills to findings by rule/CWE; 15 skills shipped | **unit tests** (`test_skills`) | skill *content quality* for LLMs is unmeasured (needs a model) |
 | `substrate.candidates` | walk a dir, run taint + patterns, emit findings | manual run (`crucible scan`) + corpus | — |
 | `substrate.OpengrepAdapter` | shell out to Opengrep, parse SARIF | `available()` returns False here (binary absent) | scan/parse against real Opengrep output |
 | `harness.Coordinator` | Phase 0 recon stage into state | manual run | superseded by `substrate.candidates` for real findings |
@@ -50,7 +51,13 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **148 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- Test suite: **157 tests pass, 1 skipped** (the gated live-backend test) — `.venv/bin/pytest -q`.
+- **15 skills** (`skills/*/SKILL.md`) ship: one per taint class (11), plus 4 semantic
+  classes (broken-access-control, auth-bypass, CSRF, business-logic) that taint
+  cannot find. A tested registry loads them, validates frontmatter, and matches a
+  skill to a finding by rule id or CWE. **Verifiable here:** loading, structure,
+  matching, and that every detector rule has a skill. **NOT verifiable here:**
+  whether a skill improves an LLM's judgment (needs a model + benchmark).
 - **Config/crypto weaknesses are covered by a separate pattern detector** (they are
   not data-flow problems, so taint structurally cannot find them): hardcoded
   secrets (known token formats + a heuristic for generic ones), weak crypto
