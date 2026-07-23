@@ -4,13 +4,13 @@ description: >
   Detect SQL injection: untrusted input reaching a database query without
   parameterization or safe escaping. Language-agnostic — reasons over a code
   slice and its taint path, not over syntax of a specific framework.
-version: 0.1.0
+rule_id: crucible.sql-injection
 cwe: CWE-89
 severity: high
+technique: taint
 activation:
   - "scan for sql injection"
   - "check database query safety"
-  - candidate.rule_id matches "*sql*" or "*sqli*"
 ---
 
 # SQL Injection

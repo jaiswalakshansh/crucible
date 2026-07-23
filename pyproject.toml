@@ -10,6 +10,7 @@ keywords = ["sast", "security", "static-analysis", "ai", "llm", "vulnerability"]
 dependencies = [
     "tree-sitter>=0.23",
     "tree-sitter-language-pack>=0.9",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
