@@ -17,12 +17,15 @@ from crucible.substrate.interproc import (
     analyze_source_interprocedural,
 )
 from crucible.substrate.languages import detect_language
+from crucible.substrate.patterns import scan_patterns
 from crucible.substrate.taint import analyze_source
 
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
 
 
-def analyze_file(path: str, *, interprocedural: bool = True) -> list[Finding]:
+def analyze_file(
+    path: str, *, interprocedural: bool = True, patterns: bool = True
+) -> list[Finding]:
     lang = detect_language(path)
     if lang is None:
         return []
@@ -32,8 +35,12 @@ def analyze_file(path: str, *, interprocedural: bool = True) -> list[Finding]:
     except (OSError, UnicodeDecodeError):
         return []
     if interprocedural:
-        return analyze_source_interprocedural(source, lang.name, path=path)
-    return analyze_source(source, lang.name, path=path)
+        findings = analyze_source_interprocedural(source, lang.name, path=path)
+    else:
+        findings = analyze_source(source, lang.name, path=path)
+    if patterns:
+        findings = findings + scan_patterns(source, lang.name, path=path)
+    return findings
 
 
 def taint_candidates(target: str, *, interprocedural: bool = True) -> list[Finding]:
@@ -67,6 +74,9 @@ def taint_candidates(target: str, *, interprocedural: bool = True) -> list[Findi
     out: list[Finding] = []
     if py_sources:
         out.extend(analyze_project(py_sources, language="python"))
+        # Pattern (config/crypto) findings are per-file and independent of taint.
+        for path, source in py_sources.items():
+            out.extend(scan_patterns(source, "python", path=path))
     for path in other_files:
         out.extend(analyze_file(path, interprocedural=interprocedural))
     return out
