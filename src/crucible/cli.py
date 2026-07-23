@@ -97,6 +97,45 @@ def _cmd_prove(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_semantic(args: argparse.Namespace) -> int:
+    import glob
+
+    from crucible.agents import run_semantic_agents
+    from crucible.skills import SkillRegistry
+
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        print(
+            "semantic: no ANTHROPIC_API_KEY set. Semantic classes (access control, "
+            "auth, CSRF, business logic) require a model to detect and cannot run "
+            "without a key. No findings produced (not faked).",
+            file=sys.stderr,
+        )
+        _emit([], args.output)
+        return 0
+
+    from crucible.backends.anthropic import AnthropicBackend
+
+    skills_dir = args.skills or os.path.join(os.path.dirname(__file__), "..", "..", "skills")
+    semantic = SkillRegistry.from_dir(skills_dir).by_technique("semantic")
+    backend = AnthropicBackend(model=args.model)
+
+    targets = [args.path] if os.path.isfile(args.path) else glob.glob(
+        os.path.join(args.path, "**", "*.py"), recursive=True
+    )
+    findings = []
+    for t in targets:
+        try:
+            with open(t, encoding="utf-8") as fh:
+                findings.extend(run_semantic_agents(fh.read(), t, semantic, backend))
+        except (OSError, UnicodeDecodeError):
+            continue
+    print(f"semantic: {len(findings)} suspected finding(s) across {len(semantic)} classes",
+          file=sys.stderr)
+    _emit(findings, args.output)
+    return 0
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     from crucible.harness import Pipeline
     from crucible.validators.gates import AdversarialGate, PrefilterGate
@@ -146,6 +185,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="run PoCs in a network-isolated container (required for untrusted code)",
     )
     p_prove.set_defaults(func=_cmd_prove)
+
+    p_sem = sub.add_parser(
+        "semantic",
+        help="run semantic-vuln agents (access control, auth, CSRF, business logic)",
+    )
+    p_sem.add_argument("path", help="file or directory to analyze")
+    p_sem.add_argument("-o", "--output", help="write SARIF here (default: stdout)")
+    p_sem.add_argument("--model", default="claude-sonnet-5", help="Anthropic model")
+    p_sem.add_argument("--skills", help="skills directory (default: bundled)")
+    p_sem.set_defaults(func=_cmd_semantic)
 
     p_val = sub.add_parser("validate", help="scan then run the validation ladder")
     p_val.add_argument("path", help="file or directory to scan")

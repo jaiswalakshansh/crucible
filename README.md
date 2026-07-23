@@ -58,6 +58,12 @@ says so. See [STATUS.md](STATUS.md) for the per-component verification ledger.
   governor caps tokens/calls/wall-clock. A Docker executor (`--network none`)
   exists for untrusted PoCs but is not run in CI.
 
+- **Covers classes taint cannot, via LLM agents.** Broken access control / IDOR,
+  auth bypass, CSRF, and business-logic flaws are not data-flow problems, so a
+  skill-driven `SemanticVulnAgent` handles them (`crucible semantic`). Findings are
+  always `suspected` with the model's reasoning; agents never confirm. Their
+  orchestration is tested; detection quality needs a model + benchmark (unmeasured).
+
 ## What is not yet true
 
 - **Cross-file taint is Python-only and filename-based.** JS/TS stay single-file;
