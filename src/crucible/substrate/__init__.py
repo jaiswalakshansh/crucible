@@ -16,10 +16,10 @@ The contract for adding a language lives in ``LANGUAGES``: provide a grammar,
 an indexer, and source/sink/sanitizer specs — no changes above L0.
 """
 
-from crucible.substrate.opengrep import OpengrepAdapter
-from crucible.substrate.languages import LANGUAGES, Language, detect_language
-from crucible.substrate.taint import analyze_source
 from crucible.substrate.candidates import analyze_file, taint_candidates
+from crucible.substrate.languages import LANGUAGES, Language, detect_language
+from crucible.substrate.opengrep import OpengrepAdapter
+from crucible.substrate.taint import analyze_source
 
 __all__ = [
     "OpengrepAdapter",

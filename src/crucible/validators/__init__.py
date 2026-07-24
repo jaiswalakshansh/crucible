@@ -18,6 +18,6 @@ Status: the ladder orchestration and the Phase 1 gates' control flow are tested
 with a scripted backend. The accuracy of LLM verdicts is not measured here.
 """
 
-from crucible.validators.ladder import ValidationLadder, Gate
+from crucible.validators.ladder import Gate, ValidationLadder
 
 __all__ = ["ValidationLadder", "Gate"]

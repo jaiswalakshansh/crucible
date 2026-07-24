@@ -9,8 +9,8 @@ import os
 
 from crucible.evals.realworld import load_manifest, measure_dir
 from crucible.substrate.candidates import analyze_file
-from crucible.substrate.taint import analyze_source as intra
 from crucible.substrate.interproc import analyze_source_interprocedural as ip
+from crucible.substrate.taint import analyze_source as intra
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "evals", "fixtures", "realworld")
 APP = os.path.join(FIXTURES, "http_handler_app.py")

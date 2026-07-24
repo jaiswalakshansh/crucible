@@ -236,7 +236,8 @@ def test_source_kind_is_recorded_in_evidence():
          "crucible.insecure-deserialization", "CWE-502"),
         ('from lxml import etree\ndef h(request):\n    etree.fromstring(request.args.get("x"))\n',
          "crucible.xxe", "CWE-611"),
-        ('from flask import redirect\ndef h(request):\n    return redirect(request.args.get("n"))\n',
+        ('from flask import redirect\ndef h(request):\n'
+         '    return redirect(request.args.get("n"))\n',
          "crucible.open-redirect", "CWE-601"),
         ('def h(request):\n    return HttpResponseRedirect(request.args.get("n"))\n',
          "crucible.open-redirect", "CWE-601"),

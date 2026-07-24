@@ -78,8 +78,9 @@ def _cmd_prove(args: argparse.Namespace) -> int:
     if os.path.isfile(args.path):
         targets = [args.path]
     else:
+        _skip = {".git", "node_modules", ".venv", "__pycache__"}
         for dirpath, dirnames, filenames in os.walk(args.path):
-            dirnames[:] = [d for d in dirnames if d not in {".git", "node_modules", ".venv", "__pycache__"}]
+            dirnames[:] = [d for d in dirnames if d not in _skip]
             targets.extend(os.path.join(dirpath, n) for n in filenames)
 
     all_findings = []

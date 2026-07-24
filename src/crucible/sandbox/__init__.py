@@ -17,8 +17,8 @@ gate applies this contract.
 """
 
 from crucible.sandbox.base import ExecutionResult, ExecutionStatus, SandboxExecutor
-from crucible.sandbox.local import LocalSubprocessExecutor
 from crucible.sandbox.docker import DockerExecutor
+from crucible.sandbox.local import LocalSubprocessExecutor
 
 __all__ = [
     "ExecutionResult",
