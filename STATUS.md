@@ -53,7 +53,14 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **166 tests pass, 2 skipped** (both gated live-model tests) — `.venv/bin/pytest -q`.
+- Test suite: **174 tests pass, 2 skipped** (both gated live-model tests) — `.venv/bin/pytest -q`.
+- **Real-code hardening landed.** Two engine features that make the analyzer fire on
+  real code: (1) tuple/list-unpacking assignments (`path, query = ...` — ubiquitous
+  in real Python, previously dropped the taint), and (2) framework/stdlib request
+  sources (Django/Tornado/WSGI, and stdlib `http.server` `self.path`/`self.headers`
+  gated to HTTP handler methods to avoid flagging ordinary `self.path` attributes).
+  Verified on external code (DSVW, see below) and precision-checked: a non-handler
+  `self.path` and a parameterized query are not flagged.
 - **Semantic-vuln agents exist for the classes taint cannot find** (broken access
   control/IDOR, auth bypass, CSRF, business logic), driven by their skills. Their
   *orchestration* is tested with a scripted backend (prompt built from the skill,
@@ -114,6 +121,22 @@ Legend for **Verified by**:
 - The Docker executor is not run here; it is unverified in this repo.
 
 ## Measured numbers (with honest framing)
+
+- **First real-world result (external code Crucible did not write).** On
+  [DSVW](https://github.com/stamparm/DSVW) (Damn Small Vulnerable Web, a real app
+  that is a catalog of documented web vulnerabilities), Crucible finds **12 true
+  positives across 8 classes** — SQL injection, path traversal, SSRF, XXE (local +
+  remote), insecure deserialization, command injection, and code injection —
+  **recall 1.0 on the documented sink lines, 0 false positives** on inspection.
+  **Before the real-code hardening (tuple-unpacking + handler-gated `self.*`
+  sources) it found 0.** Reproduce: clone DSVW, then
+  `crucible eval <dir> --manifest evals/fixtures/realworld/DSVW.manifest.json`
+  (line numbers pinned to the current upstream file; re-check if it changes). This
+  is the first evidence Crucible finds real bugs, not just self-authored ones.
+- The committed `evals/fixtures/realworld/` fixture captures the same code shape
+  (stdlib `http.server` handler, tuple unpacking, `params` dict) so this stays
+  regression-tested without the external repo.
+
 
 - **Taint analyzer on the self-authored corpus** (`evals/fixtures/taint_corpus/`,
   15 cases: 8 vulnerable, 7 safe; spanning SQLi, command injection, SSRF, path

@@ -44,6 +44,39 @@ class LanguageAdapter(abc.ABC):
         named = [c for c in node.children if c.is_named]
         return named[-1] if named else None
 
+    # Node types for tuple/list destructuring targets and value tuples. Kept as
+    # supersets covering Python and JS so the logic is written once.
+    _UNPACK_TARGET_TYPES = frozenset(
+        {"pattern_list", "tuple_pattern", "list_pattern", "tuple", "list", "array_pattern"}
+    )
+    _UNPACK_VALUE_TYPES = frozenset(
+        {"expression_list", "tuple", "list", "array", "sequence_expression"}
+    )
+
+    def unpack_targets(self, target: Any) -> list[str]:
+        """Identifier names bound by an assignment target.
+
+        ``x = ...`` -> ``["x"]``; ``a, b = ...`` -> ``["a", "b"]``; a non-identifier
+        target (e.g. ``obj.attr``) -> ``[]`` (no simple binding)."""
+        if target.type == "identifier":
+            return [node_text(target)]
+        if target.type in self._UNPACK_TARGET_TYPES:
+            names: list[str] = []
+            for child in target.children:
+                if child.type == "identifier":
+                    names.append(node_text(child))
+                elif child.type in self._UNPACK_TARGET_TYPES:
+                    names.extend(self.unpack_targets(child))
+            return names
+        return []
+
+    def unpack_value_elements(self, value: Any) -> list[Any] | None:
+        """If the RHS is a literal tuple/list of expressions, return its elements
+        (for positional pairing); otherwise None (RHS is a single expression)."""
+        if value.type in self._UNPACK_VALUE_TYPES:
+            return [c for c in value.children if c.is_named]
+        return None
+
     @abc.abstractmethod
     def param_names(self, func_node: Any) -> list[str]:
         ...

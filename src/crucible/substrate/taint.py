@@ -20,12 +20,21 @@ as insecure-LLM-output-handling rather than by the sink alone.
 
 from __future__ import annotations
 
+import re
 from typing import Any, NamedTuple
 
 from crucible.schema.finding import Finding, Location, Severity
 from crucible.substrate.adapters import LanguageAdapter, adapter_for
 from crucible.substrate.taint_rules import TaintRules, rules_for
 from crucible.substrate.treesitter import get_tree, node_line, node_text
+
+# HTTP handler methods (stdlib http.server). Inside these, ``self.path`` etc. are
+# request data; elsewhere they are ordinary attributes.
+_HANDLER_METHOD = re.compile(r"^do_(GET|POST|PUT|DELETE|HEAD|PATCH|OPTIONS)$")
+
+
+def is_handler_method(name: str | None) -> bool:
+    return bool(name and _HANDLER_METHOD.match(name))
 
 
 class TaintMark(NamedTuple):
@@ -75,6 +84,7 @@ class _Analyzer:
         self.taint_params = taint_params
         self.findings: list[Finding] = []
         self._seen: set[tuple[int, int]] = set()
+        self._handler = False
 
     def run(self, root: Any) -> None:
         self._analyze_scope(root, params=[], func_name=None)
@@ -102,6 +112,7 @@ class _Analyzer:
         self, scope: Any, params: list[str], func_name: str | None
     ) -> None:
         tainted: dict[str, TaintMark] = {}
+        self._handler = is_handler_method(func_name)
         if self.taint_params:
             for p in params:
                 tainted[p] = TaintMark(node_line(scope), "user", origin=p)
@@ -129,13 +140,26 @@ class _Analyzer:
         # Assignment-target sink, e.g. ``el.innerHTML = tainted``.
         if mark is not None and self.rules.assign_sinks.matches(target_text):
             self._emit(node, target_text, mark, func_name)
-        # Variable binding (only for plain identifiers).
-        name = self.a.identifier_name(target)
-        if name is not None:
-            if mark is not None:
-                tainted[name] = mark
+        # Variable binding, handling tuple/list unpacking (a, b = x, y).
+        names = self.a.unpack_targets(target)
+        if len(names) <= 1:
+            if names:
+                self._bind(tainted, names[0], mark)
+        else:
+            elements = self.a.unpack_value_elements(value)
+            if elements is not None and len(elements) == len(names):
+                for name, elem in zip(names, elements):
+                    self._bind(tainted, name, self._expr_taint(elem, tainted))
             else:
-                tainted.pop(name, None)
+                for name in names:
+                    self._bind(tainted, name, mark)
+
+    @staticmethod
+    def _bind(tainted: dict[str, TaintMark], name: str, mark: TaintMark | None) -> None:
+        if mark is not None:
+            tainted[name] = mark
+        else:
+            tainted.pop(name, None)
 
     def _walk_scope(self, scope: Any):
         for child in scope.children:
@@ -177,6 +201,8 @@ class _Analyzer:
             if self.rules.llm_sources.matches(text):
                 return TaintMark(node_line(node), "llm")
             if self.rules.sources.matches(text):
+                return TaintMark(node_line(node), "user")
+            if self._handler and self.rules.self_sources.matches(text):
                 return TaintMark(node_line(node), "user")
             # else fall through: the base object may be a tainted variable.
         name = self.a.identifier_name(node)
