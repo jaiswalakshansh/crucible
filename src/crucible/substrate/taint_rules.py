@@ -46,6 +46,8 @@ class TaintRules:
     sanitizers: Matcher
     llm_sources: Matcher = Matcher()
     assign_sinks: Matcher = Matcher()
+    # Sources active only inside an HTTP handler method (see _PY_SELF_SOURCES).
+    self_sources: Matcher = Matcher()
     # Ordered (needle, rule_id, cwe); first match wins. Order matters: put specific
     # needles before generic ones (e.g. ".execute" before "exec").
     sink_labels: tuple[tuple[str, str, str], ...] = ()
@@ -63,6 +65,7 @@ class TaintRules:
 _PY_SOURCES = Matcher(
     substrings=frozenset(
         {
+            # Flask / Django / common request objects
             "request.args",
             "request.form",
             "request.values",
@@ -73,11 +76,31 @@ _PY_SOURCES = Matcher(
             "request.data",
             "request.GET",
             "request.POST",
+            "request.META",
+            "request.body",
+            "request.query_params",
+            # Tornado / other frameworks
+            ".get_argument",
+            ".get_query_argument",
+            ".get_body_argument",
+            # WSGI environ
+            "environ[",
+            "environ.get",
+            # process input
             "os.environ",
             "sys.argv",
         }
     ),
     exact=frozenset({"input"}),
+)
+# ``self.*`` request data (stdlib http.server BaseHTTPRequestHandler). These are
+# sources ONLY inside an HTTP handler method (do_GET/do_POST/...), because
+# ``self.path`` on an ordinary class is usually a filesystem attribute, not input.
+# The analyzer applies these only in handler context to avoid that false positive.
+_PY_SELF_SOURCES = Matcher(
+    substrings=frozenset(
+        {"self.path", "self.headers", "self.rfile", "self.requestline"}
+    ),
 )
 _PY_LLM_SOURCES = Matcher(
     substrings=frozenset(
@@ -285,6 +308,7 @@ RULES: dict[str, TaintRules] = {
         sinks=_PY_SINKS,
         sanitizers=_PY_SANITIZERS,
         llm_sources=_PY_LLM_SOURCES,
+        self_sources=_PY_SELF_SOURCES,
         sink_labels=_PY_SINK_LABELS,
     ),
     "javascript": TaintRules(

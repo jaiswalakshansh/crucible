@@ -9,9 +9,9 @@ is unit-tested with a scripted backend in tests/test_gates.py. The accuracy of
 the LLM gates' judgments is not measured in this repo.
 """
 
-from crucible.validators.gates.prefilter import PrefilterGate
 from crucible.validators.gates.adversarial import AdversarialGate
-from crucible.validators.gates.reachability import ReachabilityGate
 from crucible.validators.gates.poc import PoCGate
+from crucible.validators.gates.prefilter import PrefilterGate
+from crucible.validators.gates.reachability import ReachabilityGate
 
 __all__ = ["PrefilterGate", "AdversarialGate", "ReachabilityGate", "PoCGate"]

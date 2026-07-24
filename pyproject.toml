@@ -30,5 +30,10 @@ where = ["src"]
 line-length = 100
 target-version = "py310"
 
+# Pin an explicit rule set so linting is deterministic across ruff releases
+# (newer ruff versions enable additional opinionated rules by default).
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

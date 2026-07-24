@@ -35,7 +35,11 @@ from typing import Any, Callable
 
 from crucible.schema.finding import Finding, Location, Severity
 from crucible.substrate.adapters import LanguageAdapter, adapter_for
-from crucible.substrate.taint import EXECUTION_SINK_RULES, TaintMark
+from crucible.substrate.taint import (
+    EXECUTION_SINK_RULES,
+    TaintMark,
+    is_handler_method,
+)
 from crucible.substrate.taint_rules import TaintRules, rules_for
 from crucible.substrate.treesitter import get_tree, node_line, node_text
 
@@ -73,6 +77,7 @@ class _Ctx:
     summaries: dict[str, Summary]
     resolve: Callable[[str, str], str | None]  # (callee_text, current_module) -> qid
     current_module: str = ""
+    handler_context: bool = False  # inside an HTTP handler method (self.* sources)
 
 
 def _basename(callee: str) -> str:
@@ -254,6 +259,7 @@ def _fixpoint(ctx: _Ctx) -> None:
 def _build_summary(fn: _Func, ctx: _Ctx) -> Summary:
     summary = Summary()
     ctx.current_module = fn.module
+    ctx.handler_context = is_handler_method(fn.name)
     tainted = {p: TaintMark(0, "user", origin=p) for p in fn.params}
     _run_scope(fn.body, tainted, ctx, fn.path, current=fn, emit=None, collect=summary)
     return summary
@@ -265,9 +271,11 @@ def _main_pass(
     findings: list[Finding] = []
     for module, root in roots.items():
         ctx.current_module = module
+        ctx.handler_context = False
         _run_scope(root, {}, ctx, _path_for(ctx, module), current=None, emit=findings, collect=None)
     for fn in ctx.funcs.values():
         ctx.current_module = fn.module
+        ctx.handler_context = is_handler_method(fn.name)
         seed = (
             {p: TaintMark(0, "user", origin=p) for p in fn.params}
             if taint_params
@@ -311,12 +319,7 @@ def _run_scope(
             mark = _expr_taint(value, tainted, ctx)
             if mark is not None and ctx.rules.assign_sinks.matches(node_text(target)):
                 _hit(node, node_text(target), mark, ctx, path, current, emit, collect)
-            name = a.identifier_name(target)
-            if name is not None:
-                if mark is not None:
-                    tainted[name] = mark
-                else:
-                    tainted.pop(name, None)
+            _bind_targets(a, target, value, mark, tainted, ctx)
             continue
 
         ret = a.as_return(node)
@@ -402,6 +405,8 @@ def _expr_taint(node: Any, tainted: dict[str, TaintMark], ctx: _Ctx) -> TaintMar
             return TaintMark(node_line(node), "llm")
         if rules.sources.matches(text):
             return TaintMark(node_line(node), "user")
+        if ctx.handler_context and rules.self_sources.matches(text):
+            return TaintMark(node_line(node), "user")
     name = a.identifier_name(node)
     if name is not None:
         return tainted.get(name)
@@ -413,6 +418,43 @@ def _expr_taint(node: Any, tainted: dict[str, TaintMark], ctx: _Ctx) -> TaintMar
         if m is not None and (best is None or m.line < best.line):
             best = m
     return best
+
+
+def _bind_targets(
+    a: LanguageAdapter,
+    target: Any,
+    value: Any,
+    mark: TaintMark | None,
+    tainted: dict[str, TaintMark],
+    ctx: _Ctx,
+) -> None:
+    """Bind assignment target(s), handling tuple/list unpacking.
+
+    ``a, b = x, y`` pairs positionally (precise); ``a, b = f()`` taints all targets
+    from the whole RHS (over-approximation, since we can't split the return)."""
+    names = a.unpack_targets(target)
+    if len(names) <= 1:
+        name = names[0] if names else None
+        if name is not None:
+            if mark is not None:
+                tainted[name] = mark
+            else:
+                tainted.pop(name, None)
+        return
+    elements = a.unpack_value_elements(value)
+
+    def bind(name: str, m: TaintMark | None) -> None:
+        if m is not None:
+            tainted[name] = m
+        else:
+            tainted.pop(name, None)
+
+    if elements is not None and len(elements) == len(names):
+        for name, elem in zip(names, elements):
+            bind(name, _expr_taint(elem, tainted, ctx))
+    else:
+        for name in names:
+            bind(name, mark)
 
 
 def _walk(scope: Any, adapter: LanguageAdapter):

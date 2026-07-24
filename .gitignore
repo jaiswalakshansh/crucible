@@ -42,3 +42,6 @@ findings/
 
 # Local Claude Code settings
 .claude/
+
+# External eval clones
+.eval-tmp/

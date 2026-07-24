@@ -14,7 +14,7 @@ scoring path. It is NOT the OWASP Benchmark and proves nothing about accuracy.
 Running against OWASP (the target in PLAN.md) is not done here.
 """
 
-from crucible.evals.scoring import Score, score_findings
 from crucible.evals.harness import Case, EvalResult, run_eval
+from crucible.evals.scoring import Score, score_findings
 
 __all__ = ["Score", "score_findings", "Case", "EvalResult", "run_eval"]

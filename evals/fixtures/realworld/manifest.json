@@ -1,0 +1,9 @@
+{
+  "_note": "Expected sink locations for the DSVW-shape handler app fixture. Committed so the real-world code pattern (tuple unpack + self.path source + params dict) stays regression-tested without an external repo.",
+  "expected": [
+    { "path": "http_handler_app.py", "line": 14 },
+    { "path": "http_handler_app.py", "line": 16 },
+    { "path": "http_handler_app.py", "line": 18 },
+    { "path": "http_handler_app.py", "line": 20 }
+  ]
+}

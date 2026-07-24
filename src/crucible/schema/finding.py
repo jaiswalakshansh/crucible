@@ -16,7 +16,7 @@ format. See ``to_sarif_result`` / ``from_sarif_result``.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 

@@ -78,8 +78,9 @@ def _cmd_prove(args: argparse.Namespace) -> int:
     if os.path.isfile(args.path):
         targets = [args.path]
     else:
+        _skip = {".git", "node_modules", ".venv", "__pycache__"}
         for dirpath, dirnames, filenames in os.walk(args.path):
-            dirnames[:] = [d for d in dirnames if d not in {".git", "node_modules", ".venv", "__pycache__"}]
+            dirnames[:] = [d for d in dirnames if d not in _skip]
             targets.extend(os.path.join(dirpath, n) for n in filenames)
 
     all_findings = []
@@ -94,6 +95,26 @@ def _cmd_prove(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
     _emit(all_findings, args.output)
+    return 0
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    from crucible.evals.realworld import load_manifest, measure_dir
+
+    labels = load_manifest(args.manifest)
+    result = measure_dir(args.path, labels)
+    s = result.score
+    print(json.dumps({
+        "recall": round(s.recall, 4),
+        "precision_vs_manifest": round(s.precision, 4),
+        "found_known": s.tp,
+        "missed_known": s.fn,
+        "unmatched_needs_triage": len(result.unmatched),
+    }, indent=2))
+    if args.verbose:
+        for f in result.unmatched:
+            print(f"  UNMATCHED {f.location.path}:{f.location.start_line} {f.rule_id}",
+                  file=sys.stderr)
     return 0
 
 
@@ -185,6 +206,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run PoCs in a network-isolated container (required for untrusted code)",
     )
     p_prove.set_defaults(func=_cmd_prove)
+
+    p_eval = sub.add_parser(
+        "eval", help="measure findings against a manifest of known vulnerabilities"
+    )
+    p_eval.add_argument("path", help="application directory to scan")
+    p_eval.add_argument("--manifest", required=True, help="JSON manifest of expected findings")
+    p_eval.add_argument("-v", "--verbose", action="store_true", help="list unmatched findings")
+    p_eval.set_defaults(func=_cmd_eval)
 
     p_sem = sub.add_parser(
         "semantic",

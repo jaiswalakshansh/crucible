@@ -1,0 +1,15 @@
+{
+  "_note": "Reproducible external measurement. Clone DSVW, then: crucible eval <dir> --manifest this. Records the documented-vulnerability sink lines Crucible detects. dsvw.py line numbers are for stamparm/DSVW at the pinned commit; re-check if the upstream file changes.",
+  "expected": [
+    { "path": "dsvw/dsvw.py", "line": 30 },
+    { "path": "dsvw/dsvw.py", "line": 35 },
+    { "path": "dsvw/dsvw.py", "line": 37 },
+    { "path": "dsvw/dsvw.py", "line": 39 },
+    { "path": "dsvw/dsvw.py", "line": 41 },
+    { "path": "dsvw/dsvw.py", "line": 43 },
+    { "path": "dsvw/dsvw.py", "line": 50 },
+    { "path": "dsvw/dsvw.py", "line": 56 },
+    { "path": "dsvw/dsvw.py", "line": 57 },
+    { "path": "dsvw/dsvw.py", "line": 67 }
+  ]
+}
