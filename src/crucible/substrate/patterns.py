@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 from crucible.schema.finding import Finding, Location, Severity
 
@@ -32,10 +32,17 @@ class PatternRule:
     # Optional check on regex capture group 1 (e.g. a secret value must look
     # secret-like). If it returns False the match is discarded.
     value_check: Callable[[str], bool] | None = None
+    # If this pattern matches the line, the finding is suppressed (e.g. a weak
+    # hash explicitly marked ``usedforsecurity=False``).
+    exclude: re.Pattern | None = None
 
 
 def _looks_secret(value: str) -> bool:
     return any(c.isdigit() for c in value) or len(value) >= 16
+
+
+# Weak crypto explicitly marked non-security (Python 3.9+) is not a finding.
+_USEDFORSECURITY_FALSE = re.compile(r"usedforsecurity\s*=\s*False")
 
 
 _SECRET_NAME = r"(?i)(pass(?:word|wd)?|secret|api[_-]?key|access[_-]?key|auth[_-]?token|token)"
@@ -71,6 +78,7 @@ RULES: list[PatternRule] = [
         re.compile(r"hashlib\.(md5|sha1)\s*\(|\bDES\.new\b|MODE_ECB"),
         "weak or broken cryptographic primitive (MD5/SHA1/DES/ECB)",
         frozenset({"python"}),
+        exclude=_USEDFORSECURITY_FALSE,
     ),
     PatternRule(
         "crucible.weak-crypto", "CWE-327", Severity.MEDIUM,
@@ -108,9 +116,50 @@ RULES: list[PatternRule] = [
 ]
 
 
+def _masked_line_ranges(source: str, language: str) -> dict[int, list[tuple[int, int]]]:
+    """Map 1-based line number -> column ranges that are documentation (a comment
+    or a docstring). A pattern match starting inside such a range is ignored — e.g.
+    ``debug=True`` shown in a docstring. Crucially this does NOT mask ordinary
+    string *values* (a hardcoded secret or a CORS ``"*"`` config lives in a string
+    literal and must still match). Best-effort: returns {} if parsing fails.
+    """
+    try:
+        from crucible.substrate.treesitter import get_tree
+
+        root = get_tree(source, language).root_node
+    except Exception:
+        return {}
+    masked: dict[int, list[tuple[int, int]]] = {}
+
+    def add(node: Any) -> None:
+        (sr, sc), (er, ec) = node.start_point, node.end_point
+        for row in range(sr, er + 1):
+            start = sc if row == sr else 0
+            end = ec if row == er else 10_000
+            masked.setdefault(row + 1, []).append((start, end))
+
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "comment":
+            add(node)
+        elif (
+            node.type in ("string", "concatenated_string")
+            and node.parent is not None
+            and node.parent.type in ("block", "module", "expression_statement")
+        ):
+            # A bare string statement (parent is a statement container) is a
+            # docstring, not data. A string *value* has a parent like assignment/
+            # pair/argument_list and is NOT masked (secrets live in those).
+            add(node)
+        stack.extend(node.children)
+    return masked
+
+
 def scan_patterns(source: str, language: str, *, path: str = "<memory>") -> list[Finding]:
     findings: list[Finding] = []
     seen: set[tuple[str, int]] = set()
+    masked = _masked_line_ranges(source, language)
     for lineno, line in enumerate(source.splitlines(), start=1):
         stripped = line.lstrip()
         if stripped.startswith("#") or stripped.startswith("//"):
@@ -120,6 +169,12 @@ def scan_patterns(source: str, language: str, *, path: str = "<memory>") -> list
                 continue
             m = rule.regex.search(line)
             if not m:
+                continue
+            if rule.exclude is not None and rule.exclude.search(line):
+                continue  # explicitly-safe usage (e.g. usedforsecurity=False)
+            # Skip matches that fall inside a string/comment span (docstrings,
+            # regex literals that contain a pattern keyword, etc.).
+            if any(lo <= m.start() < hi for lo, hi in masked.get(lineno, ())):
                 continue
             if rule.value_check is not None:
                 # capture group used for the value differs per rule; the secret

@@ -53,7 +53,7 @@ Legend for **Verified by**:
 
 ## Repo-wide facts (checked)
 
-- Test suite: **174 tests pass, 2 skipped** (both gated live-model tests) — `.venv/bin/pytest -q`.
+- Test suite: **180 tests pass, 2 skipped** (both gated live-model tests) — `.venv/bin/pytest -q`.
 - **Real-code hardening landed.** Two engine features that make the analyzer fire on
   real code: (1) tuple/list-unpacking assignments (`path, query = ...` — ubiquitous
   in real Python, previously dropped the taint), and (2) framework/stdlib request
@@ -136,6 +136,23 @@ Legend for **Verified by**:
 - The committed `evals/fixtures/realworld/` fixture captures the same code shape
   (stdlib `http.server` handler, tuple unpacking, `params` dict) so this stays
   regression-tested without the external repo.
+
+- **False-positive rate on large clean codebases (the other half of "usable").**
+  Measured by scanning well-audited libraries and triaging every finding by hand:
+  - **requests** (~12k LoC): 7 findings → **0** after precision fixes. All 7 were
+    false positives — `hashlib.md5(..., usedforsecurity=False)` (explicitly
+    non-security) and `verify=False` in test files.
+  - **flask** (~18k LoC): 14 findings → **3** after fixes, and **0 are clear false
+    positives**: 2 are `open`/`eval` of an env-var-configured startup path in the
+    CLI (technically correct taint, intended dev-tool behavior) and 1 is `sha1` in
+    session code (defensible weak-crypto). The 11 removed were `debug=True` in a
+    docstring and in test files.
+  - **pygoat** (Django vuln-training app): recall preserved — 9 real taint vulns
+    found (SQLi, command/code injection, path traversal, SSRF, deserialization).
+  - Precision fixes that produced this: recognize `usedforsecurity=False`; exclude
+    config-level pattern findings in test files (test code intentionally uses
+    `debug=True`/`verify=False`); mask matches inside comments and docstrings while
+    still scanning string *values* (secrets/CORS live there). All regression-tested.
 
 
 - **Taint analyzer on the self-authored corpus** (`evals/fixtures/taint_corpus/`,

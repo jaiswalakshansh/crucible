@@ -90,6 +90,19 @@ def test_dsvw_shape_safe_endpoints_not_flagged():
     assert len(findings) == 4
 
 
+def test_pattern_findings_skipped_in_test_files(tmp_path):
+    # Config-level pattern findings in test files are intentional noise -> skipped.
+    from crucible.substrate.candidates import analyze_file
+
+    src = "def test_x():\n    app.run(debug=True)\n"
+    prod = tmp_path / "prod.py"
+    prod.write_text(src)
+    test = tmp_path / "test_prod.py"
+    test.write_text(src)
+    assert any(f.rule_id == "crucible.security-misconfig" for f in analyze_file(str(prod)))
+    assert analyze_file(str(test)) == []  # same code, but in a test file -> skipped
+
+
 def test_measure_dir_recall_on_fixture():
     labels = load_manifest(os.path.join(FIXTURES, "manifest.json"))
     result = measure_dir(FIXTURES, labels)

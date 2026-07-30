@@ -23,6 +23,20 @@ from crucible.substrate.taint import analyze_source
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
 
 
+def _is_test_path(path: str) -> bool:
+    """Test files intentionally use debug/verify-off/etc.; config-level pattern
+    findings there are noise. (Taint still runs on tests — a real injection there
+    is rare but possible.)"""
+    base = os.path.basename(path)
+    return (
+        "/tests/" in path.replace("\\", "/")
+        or "/test/" in path.replace("\\", "/")
+        or base.startswith("test_")
+        or base.endswith("_test.py")
+        or base == "conftest.py"
+    )
+
+
 def analyze_file(
     path: str, *, interprocedural: bool = True, patterns: bool = True
 ) -> list[Finding]:
@@ -38,7 +52,7 @@ def analyze_file(
         findings = analyze_source_interprocedural(source, lang.name, path=path)
     else:
         findings = analyze_source(source, lang.name, path=path)
-    if patterns:
+    if patterns and not _is_test_path(path):
         findings = findings + scan_patterns(source, lang.name, path=path)
     return findings
 
@@ -76,7 +90,8 @@ def taint_candidates(target: str, *, interprocedural: bool = True) -> list[Findi
         out.extend(analyze_project(py_sources, language="python"))
         # Pattern (config/crypto) findings are per-file and independent of taint.
         for path, source in py_sources.items():
-            out.extend(scan_patterns(source, "python", path=path))
+            if not _is_test_path(path):
+                out.extend(scan_patterns(source, "python", path=path))
     for path in other_files:
         out.extend(analyze_file(path, interprocedural=interprocedural))
     return out
