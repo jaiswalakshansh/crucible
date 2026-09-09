@@ -1,210 +1,212 @@
-# Roadmap
+# Roadmap v2 — Precision-First Validation & the Feedback Loop
 
-This is a forward plan, not a status report. For what actually works today, read
-[STATUS.md](STATUS.md) — it is the source of truth. Nothing here is claimed as
-done. Items are ordered by leverage: how much each one moves real-world true
-positives, false positives, and coverage.
-
-A distinction this roadmap keeps honest throughout: **not every vulnerability class
-is a data-flow problem.** Injection classes fit the source→sink taint engine.
-Access-control, authentication, and business-logic flaws do not — they need
-semantic (LLM) reasoning or dynamic testing. Each item below says which technique
-it actually requires, so we never pretend the taint engine covers something it
-structurally cannot.
+This supersedes roadmap v1 (whose R1 inter-procedural, R2 coverage, and R4 real-app
+measurement are shipped — see git history and [STATUS.md](STATUS.md)). It is a
+forward plan, not a status report; [STATUS.md](STATUS.md) remains the only source
+of truth for what actually works. Nothing here is claimed as done.
 
 ---
 
-## Where we are (the constraints this roadmap attacks)
+## 0. The reframe
 
-Verified today: intra-procedural taint for Python/JS/TS; SQLi, command injection,
-and code injection; a validation ladder whose LLM gates are orchestration-tested
-but not quality-measured; a PoC gate verified with real execution.
+The goal is now stated sharply: **a finding Crucible *surfaces* must be true.** We
+optimize the precision of the *reported* set toward ~100%, in the sense of
+exploitability — not the precision of every candidate the detectors produce.
 
-The three gaps that matter most:
+This is deliberately the XBOW / Cloudflare-Glasswing model from the original market
+research: *creative discovery is cheap; deterministic or dynamic proof decides what
+is real; only what survives proof is reported.* A false alarm costs user trust
+permanently; an unproven-but-plausible candidate is not a "finding," it is a
+*queued lead*. The two must never be mixed in the default output.
 
-1. **Recall is capped by intra-procedural analysis.** Any flow that crosses a
-   function or file boundary is missed. This is the single largest gap.
-2. **Coverage is narrow.** Three sink families, three languages, call-sinks only
-   (no assignment sinks like `el.innerHTML = x`), no framework-aware sources.
-3. **No independent measurement.** The only number is on a self-authored corpus,
-   which proves the mechanism works but nothing about real code.
-
----
-
-## R1 — Inter-procedural data flow (the biggest recall unlock)
-
-**Problem:** taint stops at function boundaries, so real vulnerabilities that pass
-through a helper, a class method, or another file are false negatives.
-
-**Plan:**
-- Build a **call graph** and a lightweight **Code Property Graph** over the
-  tree-sitter ASTs, using SCIP / stack-graph name resolution for cross-file symbol
-  binding (already the intended L0 substrate in [PLAN.md](PLAN.md)).
-- Add **function summaries**: for each function, compute whether a parameter taints
-  a return value or reaches a sink (a taint-through summary), then propagate across
-  call sites. This is the standard way to get inter-procedural reach without
-  re-analyzing callees inline every time.
-- Track taint through **returns, fields, containers, and simple aliasing**.
-
-**Technique:** static data-flow. **Honest limit:** full precision here is a
-research-grade problem; we will ship bounded summaries and *measure* the recall
-gain rather than claim completeness. Path explosion and dynamic dispatch will
-remain sources of both FN and FP; those will be documented.
-
-**Done when:** a labeled multi-function/multi-file corpus shows a measured recall
-increase over the intra-procedural baseline, with precision tracked separately.
+Where we are (honest): the detectors have good recall on real code (DSVW 12/12,
+recall 1.0) and low false positives on clean code (requests 0, flask 3, all
+defensible). But almost everything is reported as `suspected`; only a narrow class
+(param → `eval`/`exec`/`os.system`) is ever `confirmed` by execution. To make
+"every reported finding is true" real, validation — not detection — is now the
+main engineering front.
 
 ---
 
-## R2 — Coverage: a source→sink→sanitizer taxonomy across all three domains
+## 1. Confidence-tiered reporting (the operating model)
 
-Coverage expansion is mostly **data** (rule packs) plus a few **engine features**.
-The engine features gate several classes, so they are listed explicitly.
+Every finding lands in one of three tiers. The tier, not the detector, decides
+whether it is surfaced.
 
-### Engine features required (prerequisites for the classes below)
-- **Assignment-target sinks** — e.g. `element.innerHTML = tainted`, `x.dangerouslySetInnerHTML`.
-  Today only call-sinks are detected. (Needed for DOM XSS.)
-- **Framework-aware sources** — route-handler parameters as sources (Flask/Django
-  request, Express `req`, FastAPI/Spring annotated params). Biggest single recall
-  lever for backend web code; requires per-framework models.
-- **Taint through data structures** (dicts/lists/objects) and format strings.
-- **Return-value and field taint** (shared with R1).
+| Tier | Meaning | Surfaced by default? | Precision target |
+|---|---|---|---|
+| **CONFIRMED** | Exploitability *proven* — a PoC fired in a sandbox, or a DAST payload was observed to trigger the sink | Yes | ~100% |
+| **VALIDATED** | Not executed, but passed the full static + adversarial ladder with high confidence (reachable path + independent adversarial agreement + stable across runs); or a deterministic fact (a real hardcoded key, TLS off) | Yes, clearly labeled "not executed" | high, measured |
+| **SUSPECTED** | A candidate only — detector fired, validation incomplete or ambiguous | **No** — goes to a triage queue (`--all`) | n/a (this is where recall lives) |
 
-### Backend (taint-flow-amenable — fits the engine)
-| Class | CWE | Notes |
+**Code change:** add a `VALIDATED` status alongside the existing
+`ConfirmationStatus`, attach a numeric `confidence` to every finding, and make the
+reporter/CLI default to `CONFIRMED + VALIDATED` with `SUSPECTED` behind a flag.
+This is the single most important structural change and it is fully verifiable
+without any external dependency.
+
+**Why this is honest:** we never claim 100% precision for static suspicion. We
+claim it as a *target for the CONFIRMED tier*, approached by proof. VALIDATED is
+labeled as reasoned-not-executed. SUSPECTED is not shown, so it cannot be a false
+alarm.
+
+---
+
+## 2. What "proven" means per class (the road to the CONFIRMED tier)
+
+Precision-first means each class needs a defined proof mechanism, or it caps at
+VALIDATED — stated honestly, never faked.
+
+| Class | Proof mechanism → CONFIRMED | Ceiling if unproven |
 |---|---|---|
-| SQL injection | CWE-89 | shipped |
-| Command injection | CWE-78 | shipped |
-| Code injection / eval | CWE-94/95 | shipped |
-| Path traversal | CWE-22 | file-open sinks; `../` sanitizers |
-| SSRF | CWE-918 | HTTP-client sinks; allowlist sanitizers |
-| Server-side template injection | CWE-1336 | template-render sinks |
-| XXE | CWE-611 | XML-parser sinks with external-entity config |
-| NoSQL / LDAP / XPath injection | CWE-943/90/643 | query-builder sinks |
-| Insecure deserialization | CWE-502 | `pickle`/`yaml.load`/`ObjectInputStream` sinks (partial — often no taint needed) |
-| Open redirect | CWE-601 | redirect sinks |
-| Log / header injection | CWE-117/113 | logging / response-header sinks |
-| ReDoS | CWE-1333 | tainted regex source — partial |
+| Code / command injection (param-reachable) | PoC executes attacker code in sandbox — **shipped** | — |
+| SQLi, reflected/DOM XSS, SSRF, SSTI, open redirect, path traversal | **DAST**: run the app, send a payload to the entry route, observe the effect (DB error/boolean-diff, script reflection, out-of-band callback, file read) | VALIDATED |
+| Insecure deserialization, XXE | gadget/entity PoC in sandbox | VALIDATED |
+| Hardcoded secret, weak crypto, TLS off, permissive CORS | deterministic fact — verified by format/entropy/flag | **VALIDATED** (facts, not exploits) |
+| Access control / IDOR, auth bypass, CSRF, business logic | require app semantics + often human judgment | **VALIDATED at best** — never auto-confirmed |
 
-### Frontend (mostly taint-flow-amenable; needs assignment-sink support)
-| Class | CWE | Notes |
-|---|---|---|
-| DOM XSS | CWE-79 | sources: `location`, `document.URL`, `postMessage`; sinks: `innerHTML=`, `document.write`, `eval` |
-| Reflected/stored XSS | CWE-79 | server-side: tainted → HTML template sink |
-| `dangerouslySetInnerHTML` / `v-html` | CWE-79 | React/Vue assignment sinks |
-| Client-side open redirect | CWE-601 | `location =` sink |
-| Prototype pollution | CWE-1321 | tainted key into recursive merge sink |
-| postMessage origin misuse | CWE-346 | missing origin check (partly config) |
-| Sensitive data in `localStorage` | CWE-922 | storage sinks |
-
-### AI / LLM (OWASP LLM Top 10 — several fit the taint engine)
-| Class | LLM Top 10 | Technique |
-|---|---|---|
-| Prompt injection | LLM01 | taint: untrusted input → LLM prompt without isolation |
-| Insecure output handling | LLM02 | taint: LLM output → dangerous sink (eval/exec/SQL/HTML/shell) — high value, fits engine directly |
-| Excessive agency / unsafe tool use | LLM06/08 | taint: LLM output → tool/shell/file/MCP call |
-| SSRF via LLM / RAG injection | LLM01/06 | taint: retrieved/untrusted content → request or prompt |
-| Sensitive-info disclosure | LLM06 | taint: secret/PII source → prompt or external send |
-| Insecure plugin/function-calling wiring | LLM07 | pattern + taint on tool arguments |
-
-**"Insecure output handling" and "excessive agency" are the highest-value AI items**
-because they are literally source→sink flows (LLM output is the source, a dangerous
-API is the sink) and the engine already models that shape.
-
-### Config / pattern classes (NOT flow — single-point matches)
-Hardcoded secrets (CWE-798), weak crypto (CWE-327), missing security headers,
-insecure cookie flags, permissive CORS, TLS misconfig. These need a **pattern
-matcher**, not taint. Worth adding as a separate lightweight detector so coverage
-is honest about them rather than silently missing them.
-
-### Semantic / dynamic classes (NOT static flow — need LLM or DAST)
-Broken access control / IDOR (CWE-639), auth bypass, CSRF, mass assignment,
-business-logic flaws, race conditions. **The taint engine cannot find these.** They
-are the job of the LLM reachability/adversarial gates and, eventually, dynamic
-testing. Listing them here is the honest boundary: we will route them to the right
-technique, not fake taint coverage for them.
+The honest boundary is explicit: web-injection classes reach CONFIRMED **only** via
+DAST (§4); semantic classes never auto-confirm.
 
 ---
 
-## R3 — Coverage measurement ("ensure coverage: source, sink, flow")
+## 3. Coverage, in depth (raises recall *and* the quality of validation inputs)
 
-To *know* we are not missing things, coverage must be measured, not assumed.
+Better detection precision directly raises how much can be validated, so this is
+not separate from the precision goal.
 
-**Plan:** a `crucible coverage <path>` report that states, per language and per
-sink family: how many files were parsed vs skipped (unsupported language, parse
-error), how many sink call-sites were seen, how many had a source→sink path
-evaluated, and which sink families have no rule pack. Surface the gaps loudly.
-
-**Why:** a scanner that silently skips half a codebase reads as "clean" when it is
-not. This report turns coverage into a number the user can see — directly serving
-"don't miss things." It is also a differentiator; most tools do not expose it.
-
----
-
-## R4 — Evaluation framework (adopting the Ethiack methodology)
-
-Source: Ethiack, *Evaluating Pentesting Agents, Part 1*
-(https://ethiack.com/info-hub/research/evaluating-pentesting-agents-part-1). These
-are their principles, applied here; we have not reproduced their results.
-
-**Plan:**
-- **Real deployable targets with expert-annotated ground truth**, not CTF flags or
-  synthetic snippets. Start with the OWASP Benchmark (Java) once the Java taint
-  adapter (R5) exists, then add a small set of real open-source apps with curated
-  vulnerability lists.
-- **LLM-as-judge + bipartite matching**: match agent findings to ground-truth by
-  semantic correspondence, then resolve many-to-many into one-to-one with the
-  Hungarian algorithm so duplicates cannot inflate the score.
-- **Report precision and recall separately**, plus a **CVSS-based severity score**
-  and **CWE coverage** — not F1 alone. Ethiack's point: "low precision becomes
-  operationally unusable despite competitive F1 scores."
-- **Treat unmatched findings as candidate discoveries**, not automatic false
-  positives; queue them for review. Ground-truth is *living*.
-- **Robustness via repeated runs**, reporting the existing stability score
-  distribution — the honest handle on non-determinism.
-
-**Done when:** STATUS.md carries a real precision/recall/severity/CWE table on an
-independent target, with the methodology and its limits written down. This is the
-first point where Crucible's accuracy is measured rather than asserted.
+- **P1 · Per-sink argument positions** — today only argument 0 is checked, which is
+  why LDAP injection (tainted *filter* arg) was deferred. Model the dangerous
+  argument index/keyword per sink. Unlocks LDAP, `subprocess([...])` list forms,
+  ORM helpers, `cursor.execute(sql, params)` nuances. Small, deterministic, testable.
+- **Sanitizer / validator models per class** — precise "this path is neutralized"
+  knowledge (parameterized queries, `shlex.quote`, `os.path.realpath` + prefix
+  check, output encoders, allow-lists). Fewer false paths → higher confidence →
+  more findings legitimately reach VALIDATED.
+- **Framework source models as data packs** — Django/FastAPI/Flask/Express/Rails
+  request objects, route-parameter binding, ORM entry points. Recall on real apps.
+- **Container / field-sensitive dataflow** — precise taint through dict/list
+  elements and object fields (currently coarse), reducing both FN and FP.
+- **Languages** — Go and Java taint adapters (grammar already parses); Java also
+  unblocks the OWASP Benchmark. Gated on being measured against real Go/Java apps.
+- **Cross-file / cross-repo** — cross-file is shipped for Python; extend the
+  exploit prover across files, and add cross-repo reachability ("can external input
+  reach this at all?").
 
 ---
 
-## R5 — Language coverage: Go and Java taint adapters
+## 4. Dynamic validation (DAST) — the precision engine for web classes
 
-Go and Java already parse; they need taint adapters (the neutral vocabulary is
-defined, so this is adapter + rule-pack work). Java is the priority because the
-OWASP Benchmark is Java and R4 depends on it. **Technique:** static flow. **Done
-when:** each language passes an equivalent labeled corpus and is enabled for
-`deep_taint` only after that.
+This is what makes SQLi/XSS/SSRF reach CONFIRMED, and it is the biggest new
+capability. Architecture:
 
----
+1. **Target runner** — bring the app up in a container (or attach to a running
+   instance) from a small per-app descriptor (how to start it, base URL, routes).
+2. **Entry mapping** — connect a static taint finding (source = an HTTP parameter
+   on a known route) to a concrete request that reaches it.
+3. **Payload library per class** — SQLi (boolean/time/error), XSS (reflection
+   probe), SSRF (out-of-band callback), path traversal (`../` marker), etc.
+4. **Oracle** — observe the effect deterministically: DB error / boolean-diff,
+   reflected marker in the response, a callback hit on our collaborator, a sentinel
+   file read. A fired oracle → CONFIRMED with the request/response transcript.
+5. **Safety** — non-destructive payloads only, network-isolated target, budget caps
+   (the sandbox and Rule-of-Two constraints already in the repo apply).
 
-## R6 — Validation ladder maturation (turning candidates into confirmed findings)
-
-The gates exist but are not yet effective end to end:
-- **Per-class PoC templates** so the PoC gate can actually generate a firing
-  exploit per sink family (SQLi payload, SSRF callback, XSS reflection probe),
-  run in the Docker `--network none` sandbox.
-- **Reachability gate grounded in the R1 call graph**, not just the LLM's guess.
-- **A real backend run** behind a key, measured against R4 — so we learn whether
-  the adversarial gate actually improves precision, and by how much, rather than
-  assuming it.
-
-**Honest note:** the frontier PoC-generation ceiling (published <40% on
-long-horizon exploits) still applies; unconfirmed findings stay `suspected`.
+Honest scoping: DAST needs a runnable target, so it starts with apps that ship a
+run descriptor (our fixtures, DSVW, pygoat) and generalizes outward. It is phased
+and large; it is *the* path to trustworthy web-vuln findings.
 
 ---
 
-## Suggested sequence
+## 5. The feedback loop (learn, and become a better harness)
 
-1. **R2 engine features + backend/AI taint packs** — most coverage per unit effort;
-   "insecure output handling" and DOM XSS are high-value and mostly rule-pack work
-   once assignment-sinks land.
-2. **R3 coverage report** — cheap, and it makes every later gap visible.
-3. **R1 inter-procedural** — the big recall unlock; larger and needs care.
-4. **R5 Java adapter** → **R4 evaluation on OWASP** — the first real accuracy number.
-5. **R6 ladder maturation** with a live backend, measured against R4.
+The harness must improve itself from measured outcomes. This formalizes — as code
+and CI — the triage-and-tune cycle done by hand in the last several PRs.
 
-Each item ships only with a measured result and a written residual risk, per the
-repo's rule. Coverage claims will be backed by the R3 report; accuracy claims by
-the R4 harness. Until then they remain plans.
+```
+   detect → validate → tier → report
+                ↑                     ↓
+            tune rules  ←  triage  ←  measure (precision/recall per tier, per rule)
+            + regress                     ↑
+                └─────── growing labeled corpus (real apps) ──────┘
+```
+
+Pieces to build:
+
+- **Living eval corpus** — versioned manifests for real apps: vulnerable
+  (DSVW, pygoat, django.nV) for recall, clean (requests, flask, larger) for the
+  false-positive rate. Ground truth maintained as apps change.
+- **Metrics over time** — per-rule and per-tier precision/recall/F1, recorded each
+  run; a trend, not a one-off. Ethiack's lesson baked in: report precision and
+  recall separately, plus severity and CWE coverage.
+- **Regression gate** — CI fails if CONFIRMED-tier precision drops or a known TP
+  regresses. Every real false positive found becomes a committed fixture; every
+  missed true positive (from unmatched-finding review) becomes a new pattern/source.
+  *This is the concrete "no finding ships without a measured number" rule turned
+  into automation.*
+- **Triage queue** — SUSPECTED findings land here with their evidence; a human (or,
+  gated, an LLM) labels them; labels flow back into rules, sanitizers, and
+  suppressions.
+- **LLM-in-the-loop learning (gated on a key)** — accumulate adversarial-validator
+  verdicts and human triage labels as few-shot exemplars / learned suppressions,
+  and *measure* whether they raise precision before trusting them. Never assumed.
+- **Continuous operation** — scheduled re-scans of the corpus and of watched repos
+  (the autonomy layer already sketched): detect drift, catch regressions, keep the
+  numbers honest over time.
+
+---
+
+## 6. Harness architecture rethink (the code)
+
+Refactor toward explicit, contract-bound stages so validators and the feedback loop
+are first-class rather than bolted on:
+
+```
+Detectors            Candidates      Validation ladder                 Confidence     Reporter          Feedback
+(taint / pattern  →  (Finding    →   deterministic reachability   →    tier +      →  surface CONFIRMED  →  eval corpus →
+ / semantic agent)    stream)        → adversarial LLM                  score          + VALIDATED;          metrics →
+                                     → PoC / DAST                                      queue SUSPECTED      triage → tune → regress
+                                     → consensus
+```
+
+- **Validators are plugins** behind one interface (deterministic, LLM, PoC, DAST),
+  each returning a verdict + confidence delta; the ladder composes them and is
+  fail-open (never drops a candidate on tool error — it demotes it).
+- **Confidence scoring** is its own module: a transparent function of which gates
+  passed, agreement, reachability strength, and stability — auditable, not a magic
+  number.
+- **Reporter is tier-aware**; SARIF carries the tier + confidence + full evidence
+  chain so downstream tools and humans see *why* something is CONFIRMED.
+- **Rule packs, framework models, payload libraries, and app descriptors are data**,
+  not code — so coverage grows by adding data and the feedback loop can tune them.
+
+---
+
+## 7. Phased plan (each phase ships measured, honest, regression-gated)
+
+- **P1 — Precision spine (all verifiable now, no external deps):**
+  per-sink argument positions; the `VALIDATED` tier + confidence scoring +
+  tier-aware reporter/CLI; formalize the feedback loop (corpus + metrics + CI
+  regression gate); widen real-app measurement (django.nV + a large clean app).
+- **P2 — Precision depth:** sanitizer/validator models; framework source packs;
+  container/field-sensitive dataflow. Measured precision/recall deltas per change.
+- **P3 — DAST engine:** target runner + oracle + payload libraries; bring SQLi/XSS/
+  SSRF to CONFIRMED on apps with a run descriptor.
+- **P4 — Learning loop (gated on a model key):** LLM-in-the-loop validation and
+  learned suppressions, adopted only if measured to raise precision; live gated runs.
+- **P5 — Breadth:** Go/Java taint adapters; OWASP Benchmark (needs the Java adapter);
+  cross-repo reachability; cross-file exploit proving.
+
+---
+
+## 8. Honest boundaries (the rule, restated)
+
+- **~100% precision is a target for the CONFIRMED tier only**, reached by execution
+  or DAST — never claimed for static suspicion, never for the VALIDATED tier, never
+  for semantic classes.
+- **SUSPECTED is not surfaced by default** — that is how we keep reported precision
+  high without throwing away recall.
+- **External dependencies stay gated and labeled:** DAST needs runnable targets;
+  the learning loop and semantic-agent quality need a model key + benchmark; the
+  OWASP Benchmark needs a Java adapter. None are faked; each ships only when it can
+  be measured.
